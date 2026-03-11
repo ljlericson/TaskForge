@@ -14,16 +14,18 @@ import (
 	"github.com/ljlericson/TaskForge/internal/queue"
 )
 
-const gLogo string = `
- _________   ______ __________  ___  _________
-/_  __/ _ | / __/ //_/ __/ __ \/ _ \/ ___/ __/
- / / / __ |_\ \/ ,< / _// /_/ / , _/ (_ / _/  
-/_/ /_/ |_/___/_/|_/_/  \____/_/|_|\___/___/
+const taskforgeLogo string = `
+ _____ ___   _____ _   __   ______ ___________ _____  _____ 
+|_   _/ _ \ /  ___| | / /   |  ___|  _  | ___ \  __ \|  ___|
+  | |/ /_\ \\ '--.| |/ /    | |_  | | | | |_/ / |  \/| |__  
+  | ||  _  | '--. \    \    |  _| | | | |    /| | __ |  __| 
+  | || | | |/\__/ / |\  \   | |   \ \_/ / |\ \| |_\ \| |___ 
+  \_/\_| |_/\____/\_| \_/   \_|    \___/\_| \_|\____/\____/ 
 
-`
+	`
 
 func main() {
-	fmt.Print(gLogo)
+	fmt.Print(taskforgeLogo)
 
 	time.Sleep(1 * time.Second)
 	c := console.New()
@@ -38,7 +40,7 @@ func main() {
 				c.Stop()
 				return
 			case "logo":
-				c.Log(gLogo)
+				c.Log(taskforgeLogo)
 			default:
 				c.Log("Command " + cmd + " is not a valid command")
 			}
