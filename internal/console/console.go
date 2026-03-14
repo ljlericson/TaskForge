@@ -4,6 +4,7 @@ package console
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -18,15 +19,17 @@ type Console struct {
 	input   *tview.InputField
 	inputCh chan string
 	Mutex   sync.RWMutex
+	LogFile *os.File
 }
 
 // New creates a new console.
-func New() *Console {
+func New(logFile *os.File) *Console {
 	c := &Console{
 		app:     tview.NewApplication(),
 		logView: tview.NewTextView().SetDynamicColors(true).SetScrollable(true).SetChangedFunc(func() {}),
 		input:   tview.NewInputField().SetLabel("> ").SetFieldWidth(0),
 		inputCh: make(chan string, 10),
+		LogFile: logFile,
 	}
 
 	c.logView.SetBorder(true).SetTitle(" TASKFORGE ")
@@ -70,6 +73,7 @@ func (c *Console) Log(text string) {
 	timestamp := time.Now().Format("29-10-2008 23:48:20")
 	c.app.QueueUpdateDraw(func() {
 		c.logView.Write([]byte(fmt.Sprintf("[%s] %s\n", timestamp, text)))
+		c.LogFile.Write([]byte(fmt.Sprintf("[%s] %s\n", timestamp, text)))
 	})
 }
 

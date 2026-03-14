@@ -1,37 +1,55 @@
 package main
 
 import (
-	//	"encoding/json"
-	"encoding/json"
-	"fmt"
-	"log"
 	"net/http"
-	"time"
+	"os"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ljlericson/TaskForge/internal/api"
 	"github.com/ljlericson/TaskForge/internal/console"
-	"github.com/ljlericson/TaskForge/internal/job"
-	"github.com/ljlericson/TaskForge/internal/queue"
+	"gopkg.in/yaml.v3"
 )
 
-const taskforgeLogo string = `
- _____ ___   _____ _   __   ______ ___________ _____  _____ 
-|_   _/ _ \ /  ___| | / /   |  ___|  _  | ___ \  __ \|  ___|
-  | |/ /_\ \\ '--.| |/ /    | |_  | | | | |_/ / |  \/| |__  
-  | ||  _  | '--. \    \    |  _| | | | |    /| | __ |  __| 
-  | || | | |/\__/ / |\  \   | |   \ \_/ / |\ \| |_\ \| |___ 
-  \_/\_| |_/\____/\_| \_/   \_|    \___/\_| \_|\____/\____/ 
+type config struct {
+	Server  serverConfig  `yaml:"server"`
+	Logging loggingConfig `yaml:"logging"`
+	Session sessionConfig `yaml:"session"`
+}
 
-	`
+type serverConfig struct {
+	Host    string `yaml:"host"`
+	Port    int    `yaml:"port"`
+	Timeout int    `yaml:"timeout"`
+}
+
+type loggingConfig struct {
+	Path string `yaml:"path"`
+}
+
+type sessionConfig struct {
+	Key string `yaml:"key"`
+}
 
 func main() {
-	fmt.Print(taskforgeLogo)
+	config, err := loadConfig("config/server.yml")
+	if err != nil {
+		panic(err)
+	}
 
-	time.Sleep(1 * time.Second)
-	c := console.New()
-	go server(c)
+	logDir := filepath.Dir(config.Logging.Path)
+	err3 := os.MkdirAll(logDir, os.ModePerm)
+	if err3 != nil {
+		panic(err3)
+	}
 
-	time.Sleep(1 * time.Second)
+	logFile, err2 := os.Create(config.Logging.Path)
+	if err2 != nil {
+		panic(err2)
+	}
+
+	c := console.New(logFile)
+	go server(config.Server.Host, c)
 
 	go func() {
 		for cmd := range c.Input() {
@@ -40,7 +58,7 @@ func main() {
 				c.Stop()
 				return
 			case "logo":
-				c.Log(taskforgeLogo)
+				c.Log(api.LogoStr)
 			default:
 				c.Log("Command " + cmd + " is not a valid command")
 			}
@@ -52,49 +70,28 @@ func main() {
 	}
 }
 
-func server(c *console.Console) {
+func server(host string, c *console.Console) {
 	r := chi.NewRouter()
 	r.Use(console.RequestLogger(c))
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("hi"))
-	})
-	r.Get("/jobs", listJobs)
-	r.Get("/jobs/{id}", getJob)
-	r.Post("/jobs", submitJob)
-	http.ListenAndServe(":3000", r)
-}
-
-func listJobs(w http.ResponseWriter, r *http.Request) {
-	_, err := w.Write([]byte("listing jobs"))
+	api.ConfigureRoutes(r)
+	err := http.ListenAndServe(":3000", r)
 	if err != nil {
-		log.Fatalln(err.Error())
+		panic(err)
 	}
 }
 
-func getJob(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	queue.JobMutex.Lock()
-	j := queue.JobMap[id]
-	queue.JobMutex.Unlock()
-	responsStr := fmt.Sprintf("ID: %s\nTYPE: %s", j.ID, j.Type)
-	w.Write([]byte(responsStr))
-}
-
-func submitJob(w http.ResponseWriter, r *http.Request) {
-	var j job.Job
-
-	err := json.NewDecoder(r.Body).Decode(&j)
+func loadConfig(path string) (*config, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		w.Write([]byte(err.Error()))
+		return nil, err
 	}
 
-	queue.Jobs <- j
+	var cfg config
 
-	queue.JobMutex.Lock()
-	queue.JobMap[j.ID] = j
-	queue.NumJobs++
-	queue.JobMutex.Unlock()
+	err = yaml.Unmarshal(data, &cfg)
+	if err != nil {
+		return nil, err
+	}
 
-	w.WriteHeader(200)
+	return &cfg, nil
 }
