@@ -1,0 +1,28 @@
+{
+  "jobName": "wordcount-job",
+  "jar": {
+    "url": "s3://cluster-jobs/wordcount-1.0.jar",
+    "mainClass": "com.example.WordCount"
+  },
+  "resources": {
+    "executors": 8,
+    "coresPerExecutor": 2,
+    "memoryPerExecutorMB": 4096
+  },
+  "data": {
+    "input": [
+      "s3://datasets/books/*.txt"
+    ],
+    "output": "s3://results/wordcount/"
+  },
+  "arguments": [
+    "--min-length",
+    "3"
+  ],
+  "environment": {
+    "LOG_LEVEL": "info",
+    "JAVA_OPTS": "-Xmx2G"
+  },
+  "timeoutSeconds": 3600,
+  "priority": 5
+}

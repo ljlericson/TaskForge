@@ -1,15 +1,40 @@
 package main
 
 import (
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ljlericson/TaskForge/internal/api"
 	"github.com/ljlericson/TaskForge/internal/console"
+	"github.com/ljlericson/TaskForge/internal/job"
+	"github.com/ljlericson/TaskForge/internal/queue"
+	"github.com/ljlericson/TaskForge/internal/registry"
 	"gopkg.in/yaml.v3"
 )
+
+func main() {
+	config, err := loadConfig("config/server.yml")
+	if err != nil {
+		log.Fatalln(err)
+		return
+	}
+
+	c := console.New(getLogFile(config))
+	registry.InitRegistry(config.Server.Workers)
+
+	go server(fmt.Sprintf("%s:%d", config.Server.Host, config.Server.Port), c)
+	go processUserInput(c)
+
+	if err := c.Run(); err != nil {
+		panic(err)
+	}
+}
 
 type config struct {
 	Server  serverConfig  `yaml:"server"`
@@ -18,9 +43,10 @@ type config struct {
 }
 
 type serverConfig struct {
-	Host    string `yaml:"host"`
-	Port    int    `yaml:"port"`
-	Timeout int    `yaml:"timeout"`
+	Host    string                  `yaml:"host"`
+	Port    int                     `yaml:"port"`
+	Timeout int                     `yaml:"timeout"`
+	Workers []registry.WorkerConfig `yaml:"workers"`
 }
 
 type loggingConfig struct {
@@ -31,12 +57,60 @@ type sessionConfig struct {
 	Key string `yaml:"key"`
 }
 
-func main() {
-	config, err := loadConfig("config/server.yml")
+func server(addr string, c *console.Console) {
+	r := chi.NewRouter()
+	r.Use(console.RequestLogger(c))
+	api.ConfigureRoutes(r)
+	err := http.ListenAndServe(addr, r)
 	if err != nil {
 		panic(err)
 	}
+}
 
+func processUserInput(c *console.Console) {
+	for line := range c.Input() {
+
+		args := strings.Fields(line)
+		if len(args) == 0 {
+			continue
+		}
+
+		switch args[0] {
+		case "stop":
+			c.Stop()
+			return
+		case "logo":
+			c.Log(api.LogoStr)
+		case "job":
+			if len(args) == 3 {
+				j := job.Job{}
+				jr := job.JobRequest{}
+				priority, err := strconv.Atoi(args[2])
+				if err != nil {
+					c.Log(err.Error())
+					continue
+				}
+				j.ID = args[1]
+				jr.Priority = priority
+				err2 := queue.AddJobToQueue(&j, &jr)
+				if err2 != nil {
+					c.Log(err2.Error())
+				}
+			}
+		case "getjob":
+			job, err := queue.GetNextJobReq()
+			if err != nil {
+				c.Log(err.Error())
+				continue
+			}
+			c.Log(fmt.Sprintf("%s : %d", job.JobName, job.Priority))
+		default:
+			c.Log("Command " + args[0] + " is not a valid command")
+		}
+	}
+}
+
+func getLogFile(config *config) *os.File {
 	logDir := filepath.Dir(config.Logging.Path)
 	err3 := os.MkdirAll(logDir, os.ModePerm)
 	if err3 != nil {
@@ -47,37 +121,7 @@ func main() {
 	if err2 != nil {
 		panic(err2)
 	}
-
-	c := console.New(logFile)
-	go server(config.Server.Host, c)
-
-	go func() {
-		for cmd := range c.Input() {
-			switch cmd {
-			case "stop":
-				c.Stop()
-				return
-			case "logo":
-				c.Log(api.LogoStr)
-			default:
-				c.Log("Command " + cmd + " is not a valid command")
-			}
-		}
-	}()
-
-	if err := c.Run(); err != nil {
-		panic(err)
-	}
-}
-
-func server(host string, c *console.Console) {
-	r := chi.NewRouter()
-	r.Use(console.RequestLogger(c))
-	api.ConfigureRoutes(r)
-	err := http.ListenAndServe(":3000", r)
-	if err != nil {
-		panic(err)
-	}
+	return logFile
 }
 
 func loadConfig(path string) (*config, error) {
