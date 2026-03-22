@@ -1,12 +1,13 @@
 // Package job
 package job
 
+import "time"
+
 type Job struct {
 	ID        string
-	Name      string
 	Status    string
 	Tasks     []*Task
-	CreatedAt int64
+	CreatedAt time.Time
 }
 
 type Task struct {

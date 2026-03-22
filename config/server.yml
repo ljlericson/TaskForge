@@ -8,6 +8,4 @@ logging:
 
 workers:
   - id: worker1
-    pubkey: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-  - id: worker2
-    pubkey: "3a1f7c8b2c6d5f4e9b2d7c1a0f8e3d4c5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c0d"
+    pubkey: "AAAAC3NzaC1lZDI1NTE5AAAAIM8kDMZKcq4Qe+vpDGwukAXJvdb8BYLaFPJYbcPdZko4"

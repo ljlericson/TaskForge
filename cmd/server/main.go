@@ -26,7 +26,7 @@ func main() {
 	}
 
 	c := console.New(getLogFile(config))
-	registry.InitRegistry(config.Server.Workers)
+	registry.InitRegistry(config.Workers)
 
 	go server(fmt.Sprintf("%s:%d", config.Server.Host, config.Server.Port), c)
 	go processUserInput(c)
@@ -37,16 +37,16 @@ func main() {
 }
 
 type config struct {
-	Server  serverConfig  `yaml:"server"`
-	Logging loggingConfig `yaml:"logging"`
-	Session sessionConfig `yaml:"session"`
+	Server  serverConfig            `yaml:"server"`
+	Logging loggingConfig           `yaml:"logging"`
+	Session sessionConfig           `yaml:"session"`
+	Workers []registry.WorkerConfig `yaml:"workers"`
 }
 
 type serverConfig struct {
-	Host    string                  `yaml:"host"`
-	Port    int                     `yaml:"port"`
-	Timeout int                     `yaml:"timeout"`
-	Workers []registry.WorkerConfig `yaml:"workers"`
+	Host    string `yaml:"host"`
+	Port    int    `yaml:"port"`
+	Timeout int    `yaml:"timeout"`
 }
 
 type loggingConfig struct {

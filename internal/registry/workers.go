@@ -3,7 +3,9 @@ package registry
 
 import (
 	"crypto/ed25519"
-	"fmt"
+	"sync"
+
+	"github.com/ljlericson/TaskForge/internal/console"
 )
 
 type WorkerConfig struct {
@@ -11,20 +13,33 @@ type WorkerConfig struct {
 	PubKey string `yaml:"pubkey"`
 }
 
-var serverPublicKeys = map[string]ed25519.PublicKey{}
+var (
+	pubKeyMutex      = sync.RWMutex{}
+	serverPublicKeys = map[string]ed25519.PublicKey{}
+)
 
 func InitRegistry(wc []WorkerConfig) {
+	pubKeyMutex.Lock()
 	for _, val := range wc {
 		serverPublicKeys[val.ID] = ed25519.PublicKey(val.PubKey)
 	}
-	fmt.Println(len(serverPublicKeys))
-	panic("d")
+	pubKeyMutex.Unlock()
+}
+
+func ListWorkers(c *console.Console) {
+	pubKeyMutex.RLock()
+	for key := range serverPublicKeys {
+		c.Log(key)
+	}
+	pubKeyMutex.RUnlock()
 }
 
 func AuthenticateWorker(workerID string, message, signature []byte) bool {
+	pubKeyMutex.RLock()
 	pub, ok := serverPublicKeys[workerID]
+	pubKeyMutex.RUnlock()
+
 	if !ok {
-		// Unknown worker
 		return false
 	}
 

@@ -11,7 +11,8 @@
 *.DS_Store
 
 bin/
-build/
+worker/build/
+worker/vcpkg_installed/
 
 # Logs
 logs/
