@@ -13,6 +13,7 @@
 bin/
 worker/build/
 worker/vcpkg_installed/
+worker/.cache/
 
 # Logs
 logs/
@@ -38,4 +39,4 @@ go.work.sum
 
 # Editor/IDE
 # .idea/
-# .vscode/
+.vscode/

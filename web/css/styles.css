@@ -1,0 +1,33 @@
+body {
+    background-color:whitesmoke;
+    font-family:'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif
+}
+
+.logo img {
+    width: 300px;
+    height: 150px;
+    object-fit: contain;
+}
+
+.jobForm fieldset {
+    flex-direction: column;
+    border: 1px solid #ccc;
+    padding: 20px;
+    margin-bottom: 10px;
+}
+
+.jobForm label {
+    display: inline-block;
+    width: 200px;
+    margin-right: 10px;
+    margin-bottom: 5px;
+}
+
+.jobForm input {
+    margin-bottom: 1px;
+}
+
+.jobForm button {
+    width:150px;
+    height:30px;
+}

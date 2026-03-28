@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>My Website</title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="css/styles.css" />
+
+  <!-- JS -->
+  <script defer src="js/api.js"></script>
+  <script defer src="js/app.js"></script>
+  <script defer src="js/jobs.js"></script>
+  <script defer src="js/workers.js"></script>
+</head>
+
+<!-- Main content -->
+
+<main>
+  <div class="logo">
+    <img src="assets/logo.png">
+  </div>
+
+  <div class="jobFormTitle">
+    <h2>Job Creator</h2>
+  </div>
+
+  <div class="jobForm">
+    <form id="newJob">
+      <fieldset>
+        <legend>Preliminary Info</legend>
+        <label for="serverIP">TaskForge Server IP</label>
+        <input id="serverIP" />
+        <br>
+        <label for="jobName">Job Name</label>
+        <input id="jobName" />
+        <br>
+        <label for="timeoutSeconds">Timeout (seconds)</label>
+        <input id="timeoutSeconds" />
+        <br>
+        <label for="priority">Priority</label>
+        <input id="priority" />
+      </fieldset>
+
+      <fieldset>
+        <legend>Program Details</legend>
+        <label for="jarURL">Jar URL</label>
+        <input id="jarURL" />
+        <br>
+        <label for="jarMainClass">Jar Main Class</label>
+        <input id="jarMainClass" />
+        <br>
+        <label for="jarArguments">Arguments</label>
+        <input id="jarArguments" />
+      </fieldset>
+
+      <fieldset>
+        <legend>Resources</legend>
+        <label for="executors">Number of Executors</label>
+        <input id="executors" />
+        <br>
+        <label for="coresPerExecutor">Cores Per Executor</label>
+        <input id="coresPerExecutor" />
+        <br>
+        <label for="memoryPerExecutorMB">Memory Per Executor (Mb)</label>
+        <input id="memoryPerExecutorMB" />
+      </fieldset>
+
+      <fieldset>
+        <legend>Data</legend>
+        <label for="dataInput">Input Data URL</label>
+        <input id="dataInput" />
+        <br>
+        <label for="dataOutput">Output Data URL</label>
+        <input id="dataOutput" />
+      </fieldset>
+
+      <fieldset>
+        <legend>Environment</legend>
+        <label for="logLevel">Log Level</label>
+        <input id="logLevel" />
+        <br>
+        <label for="javaOpts">Java Opts</label>
+        <input id="javaOpts" />
+      </fieldset>
+
+      <button>Create Job</button>
+    </form>
+  </div>
+</main>
+
+</html>
