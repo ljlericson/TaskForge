@@ -4,6 +4,7 @@ package heap
 import (
 	"container/heap"
 	"errors"
+	"sync"
 
 	"github.com/ljlericson/TaskForge/internal/job"
 )
@@ -44,6 +45,7 @@ type heapState struct {
 	items  map[string]*heapItem
 	jobMap map[string]*job.Job
 	reqMap map[string]*job.JobRequest
+	mutex  sync.RWMutex
 }
 
 var heapStateInstance = heapState{
@@ -51,9 +53,12 @@ var heapStateInstance = heapState{
 	items:  make(map[string]*heapItem),
 	jobMap: make(map[string]*job.Job),
 	reqMap: make(map[string]*job.JobRequest),
+	mutex:  sync.RWMutex{},
 }
 
 func Push(j *job.Job, req *job.JobRequest) error {
+	heapStateInstance.mutex.Lock()
+	defer heapStateInstance.mutex.Unlock()
 	if _, ok := heapStateInstance.items[j.ID]; ok {
 		return errors.New("job already exists")
 	}
@@ -64,7 +69,6 @@ func Push(j *job.Job, req *job.JobRequest) error {
 	}
 
 	heap.Push(&heapStateInstance.pq, item)
-
 	heapStateInstance.items[j.ID] = item
 	heapStateInstance.jobMap[j.ID] = j
 	heapStateInstance.reqMap[j.ID] = req
@@ -73,6 +77,8 @@ func Push(j *job.Job, req *job.JobRequest) error {
 }
 
 func Top() (string, error) {
+	heapStateInstance.mutex.RLock()
+	defer heapStateInstance.mutex.RUnlock()
 	if heapStateInstance.pq.Len() == 0 {
 		return "", errors.New("heap empty")
 	}
@@ -81,6 +87,8 @@ func Top() (string, error) {
 }
 
 func Pop() (string, error) {
+	heapStateInstance.mutex.Lock()
+	defer heapStateInstance.mutex.Unlock()
 	if heapStateInstance.pq.Len() == 0 {
 		return "", errors.New("heap empty")
 	}
@@ -95,6 +103,8 @@ func Pop() (string, error) {
 }
 
 func Remove(id string) error {
+	heapStateInstance.mutex.Lock()
+	defer heapStateInstance.mutex.Unlock()
 	item, ok := heapStateInstance.items[id]
 	if !ok {
 		return errors.New("job does not exist")

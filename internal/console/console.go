@@ -22,6 +22,8 @@ type Console struct {
 	LogFile *os.File
 }
 
+var C *Console
+
 // New creates a new console.
 func New(logFile *os.File) *Console {
 	c := &Console{
