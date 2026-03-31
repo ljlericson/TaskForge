@@ -22,5 +22,5 @@ func ConfigureRoutes(r *chi.Mux) {
 	r.Get("/jobs/next", JobNextHandler)
 	r.Post("/jobs/submit", SubmitJobHandler)
 	r.Post("/workers/register", SubmitJobHandler)
-	r.Post("/workers/heatbeat", SubmitJobHandler)
+	r.Post("/workers/heartbeat", SubmitJobHandler)
 }

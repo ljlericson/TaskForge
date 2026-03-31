@@ -165,6 +165,8 @@ func processUserInput(ctx context.Context, cancel context.CancelFunc) {
 				console.C.Log(fmt.Sprintf("%s : %d", job.JobName, job.Priority))
 			case "num":
 				console.C.Log(fmt.Sprintf("number of jobs: %d", queue.GetSizeOfQueue()))
+			case "clear":
+				console.C.Clear()
 			default:
 				console.C.Log("Command " + args[0] + " is not a valid command")
 			}

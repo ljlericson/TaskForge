@@ -1,0 +1,5 @@
+{
+  "serverAddress": "127.0.0.1:3000",
+  "id": "worker1",
+  "privateKeyPath": "../keys/id_ed25519"
+}

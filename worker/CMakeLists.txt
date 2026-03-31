@@ -10,14 +10,14 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(httplib CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(CURL REQUIRED)
 
-set(CMAKE_CXX_SCAN_FOR_MODULES OFF) 
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 add_executable(TaskforgeWorker)
 
-file(GLOB_RECURSE TaskforgeWorker_SOURCES CONFIGURE_DEPENDS 
+file(GLOB_RECURSE TaskforgeWorker_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
@@ -30,14 +30,14 @@ target_include_directories(TaskforgeWorker PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(TaskforgeWorker PRIVATE 
-  httplib::httplib
+target_link_libraries(TaskforgeWorker PRIVATE
   nlohmann_json::nlohmann_json
+  CURL::libcurl
 )
 
-target_compile_options(TaskforgeWorker PRIVATE 
-    -Wall 
-    -Wextra 
+target_compile_options(TaskforgeWorker PRIVATE
+    -Wall
+    -Wextra
     -Wpedantic
 )
-    
+

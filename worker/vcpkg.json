@@ -2,6 +2,6 @@
   "name": "taskforge-worker",
   "dependencies": [
     "nlohmann-json",
-    "cpp-httplib"
+    "curl"
   ]
 }

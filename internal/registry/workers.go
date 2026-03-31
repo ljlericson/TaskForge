@@ -26,7 +26,6 @@ type WorkerConfig struct {
 // timeout after 15s
 type Node struct {
 	ID            string `json:"id"`
-	Address       string `json:"address"`
 	Status        NodeStatus
 	JobActive     bool
 	LastHeartBeat time.Time
