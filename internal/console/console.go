@@ -32,8 +32,7 @@ func New(logFile *os.File) *Console {
 		SetScrollable(true).
 		SetWrap(true)
 
-	logView.SetBorder(true).
-		SetTitle(" TASKFORGE ")
+	logView.SetBorder(true).SetTitle(" TASKFORGE ")
 
 	c := &Console{
 		app:        tview.NewApplication(),
@@ -45,9 +44,7 @@ func New(logFile *os.File) *Console {
 		LogFile:    logFile,
 	}
 
-	c.input.
-		SetLabel("> ").
-		SetFieldWidth(0)
+	c.input.SetLabel("> ").SetFieldWidth(0)
 
 	c.input.SetDoneFunc(func(key tcell.Key) {
 

@@ -1,1 +1,1 @@
-go build -o bin/TaskForge-Server ./cmd/server/
+go build -o bin/TaskForge-Server ./cmd/TaskForge-Server/

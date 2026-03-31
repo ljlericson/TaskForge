@@ -58,18 +58,6 @@ func InitRegistry(wc []WorkerConfig) {
 	registryInstance.pubKeyMutex.Unlock()
 }
 
-func AuthenticateWorker(workerID string, message, signature []byte) bool {
-	registryInstance.pubKeyMutex.RLock()
-	pub, ok := registryInstance.serverPublicKeys[workerID]
-	registryInstance.pubKeyMutex.RUnlock()
-
-	if !ok {
-		return false
-	}
-
-	return ed25519.Verify(pub, message, signature)
-}
-
 func RegisterNode(node *Node) error {
 	registryInstance.workerNodeMutex.RLock()
 	if _, ok := registryInstance.workerNodes[node.ID]; ok {
