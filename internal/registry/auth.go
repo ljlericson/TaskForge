@@ -1,7 +1,11 @@
 // Package registry
 package registry
 
-import "crypto/ed25519"
+import (
+	"crypto"
+	"crypto/rsa"
+	"crypto/sha256"
+)
 
 func AuthenticateWorker(workerID string, message, signature []byte) bool {
 	registryInstance.pubKeyMutex.RLock()
@@ -12,5 +16,8 @@ func AuthenticateWorker(workerID string, message, signature []byte) bool {
 		return false
 	}
 
-	return ed25519.Verify(pub, message, signature)
+	hash := sha256.Sum256(message)
+
+	err := rsa.VerifyPKCS1v15(pub, crypto.SHA256, hash[:], signature)
+	return err == nil
 }

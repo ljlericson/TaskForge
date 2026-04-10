@@ -2,65 +2,119 @@
 package api
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/ljlericson/TaskForge/internal/job"
+	"github.com/ljlericson/TaskForge/internal/logging"
 	"github.com/ljlericson/TaskForge/internal/queue"
 	"github.com/ljlericson/TaskForge/internal/registry"
+	"github.com/ljlericson/TaskForge/internal/scheduler"
 )
 
-func JobNextHandler(w http.ResponseWriter, r *http.Request) {
-	workerID := r.Header.Get("X-Worker-ID")
-	sigHeader := r.Header.Get("X-Signature")
-	timestamp := r.Header.Get("X-Timestamp")
+type ctxKey int
 
-	if workerID == "" || sigHeader == "" || timestamp == "" {
-		http.Error(w, "missing auth headers", http.StatusBadRequest)
-		return
+const (
+	headerWorkerID  = "X-Worker-ID"
+	headerSignature = "X-Signature"
+	headerTimestamp = "X-Timestamp"
+
+	maxClockSkew = 5 * time.Minute
+	maxBodySize  = 1 << 20 // 1 MB
+
+	workerIDKey ctxKey = iota
+)
+
+func AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+
+		workerID := r.Header.Get(headerWorkerID)
+		sigHeader := r.Header.Get(headerSignature)
+		timestamp := r.Header.Get(headerTimestamp)
+
+		if workerID == "" || sigHeader == "" || timestamp == "" {
+			http.Error(w, "missing auth headers", http.StatusBadRequest)
+			return
+		}
+
+		sigBytes, err := base64.StdEncoding.DecodeString(sigHeader)
+		if err != nil {
+			http.Error(w, "invalid signature encoding", http.StatusBadRequest)
+			return
+		}
+
+		tsInt, err := strconv.ParseInt(timestamp, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid timestamp", http.StatusBadRequest)
+			return
+		}
+
+		if time.Since(time.Unix(tsInt, 0)) > maxClockSkew {
+			http.Error(w, "request expired", http.StatusUnauthorized)
+			return
+		}
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
+		}
+		r.Body.Close()
+
+		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+		hash := sha256.Sum256(bodyBytes)
+
+		message := []byte(
+			workerID + ":" +
+				timestamp + ":" +
+				r.Method + ":" +
+				r.URL.Path + ":" +
+				hex.EncodeToString(hash[:]),
+		)
+
+		if !registry.AuthenticateWorker(workerID, message, sigBytes) {
+			http.Error(w, "worker authentication failed", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), workerIDKey, workerID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func WorkerIDFromContext(ctx context.Context) string {
+	v, ok := ctx.Value(workerIDKey).(string)
+	if !ok {
+		return ""
 	}
+	return v
+}
 
-	sigBytes, err := base64.StdEncoding.DecodeString(sigHeader)
+func NextJobHandler(w http.ResponseWriter, r *http.Request) {
+	workerID := WorkerIDFromContext(r.Context())
+
+	jr, err := scheduler.GetJobAssignedToNode(workerID)
 	if err != nil {
-		http.Error(w, "invalid signature encoding", http.StatusBadRequest)
-		return
-	}
-
-	tsInt, err := strconv.ParseInt(timestamp, 10, 64)
-	if err != nil {
-		http.Error(w, "invalid timestamp", http.StatusBadRequest)
-		return
-	}
-
-	now := time.Now().Unix()
-	if abs(now-tsInt) > 30 {
-		http.Error(w, "request expired", http.StatusUnauthorized)
-		return
-	}
-
-	message := []byte(workerID + ":" + timestamp + ":" + r.Method + ":" + r.URL.Path)
-
-	if !registry.AuthenticateWorker(workerID, message, sigBytes) {
-		http.Error(w, "worker authentication failed", http.StatusUnauthorized)
-	}
-
-	job, err := queue.GetNextJobReq()
-	if err != nil {
-		w.WriteHeader(http.StatusNoContent)
+		http.Error(w, err.Error(), http.StatusNoContent)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 
-	err2 := json.NewEncoder(w).Encode(job)
-	if err2 != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if err := json.NewEncoder(w).Encode(jr); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 }
 
 func SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
@@ -69,112 +123,48 @@ func SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&jr)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 
 	j.ID = jr.JobName
 	j.CreatedAt = time.Now()
 
-	err2 := queue.AddJobToQueue(&j, &jr)
-	if err2 != nil {
-		w.WriteHeader(http.StatusBadRequest)
+	if err := queue.AddJobToQueue(&j, &jr); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 
-	w.WriteHeader(http.StatusOK)
+	logging.Infoln("new job submitted (ID: " + jr.JobName + ")")
 }
 
 func RegisterWorkerHandler(w http.ResponseWriter, r *http.Request) {
-	workerID := r.Header.Get("X-Worker-ID")
-	sigHeader := r.Header.Get("X-Signature")
-	timestamp := r.Header.Get("X-Timestamp")
-
-	if workerID == "" || sigHeader == "" || timestamp == "" {
-		http.Error(w, "missing auth headers", http.StatusBadRequest)
-		return
-	}
-
-	sigBytes, err := base64.StdEncoding.DecodeString(sigHeader)
-	if err != nil {
-		http.Error(w, "invalid signature encoding", http.StatusBadRequest)
-		return
-	}
-
-	tsInt, err := strconv.ParseInt(timestamp, 10, 64)
-	if err != nil {
-		http.Error(w, "invalid timestamp", http.StatusBadRequest)
-		return
-	}
-
-	now := time.Now().Unix()
-	if abs(now-tsInt) > 30 {
-		http.Error(w, "request expired", http.StatusUnauthorized)
-		return
-	}
-
-	message := []byte(workerID + ":" + timestamp + ":" + r.Method + ":" + r.URL.Path)
-
-	if !registry.AuthenticateWorker(workerID, message, sigBytes) {
-		http.Error(w, "worker authentication failed", http.StatusUnauthorized)
-	}
-
 	var newNode registry.Node
 
-	err2 := json.NewDecoder(r.Body).Decode(&newNode)
-	if err2 != nil {
-		http.Error(w, "json unmarshelling failed", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&newNode); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 
-	registry.RegisterNode(&newNode)
+	newNode.Status = registry.NodeHealthy
+
+	if err := registry.RegisterNode(&newNode); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	logging.Infoln("worker (ID: " + newNode.ID + ") has registered successfully")
 }
 
 func WorkerHeartbeatHandler(w http.ResponseWriter, r *http.Request) {
-	workerID := r.Header.Get("X-Worker-ID")
-	sigHeader := r.Header.Get("X-Signature")
-	timestamp := r.Header.Get("X-Timestamp")
-
-	if workerID == "" || sigHeader == "" || timestamp == "" {
-		http.Error(w, "missing auth headers", http.StatusBadRequest)
-		return
-	}
-
-	sigBytes, err := base64.StdEncoding.DecodeString(sigHeader)
-	if err != nil {
-		http.Error(w, "invalid signature encoding", http.StatusBadRequest)
-		return
-	}
-
-	tsInt, err := strconv.ParseInt(timestamp, 10, 64)
-	if err != nil {
-		http.Error(w, "invalid timestamp", http.StatusBadRequest)
-		return
-	}
-
-	now := time.Now().Unix()
-	if abs(now-tsInt) > 30 {
-		http.Error(w, "request expired", http.StatusUnauthorized)
-		return
-	}
-
-	message := []byte(workerID + ":" + timestamp + ":" + r.Method + ":" + r.URL.Path)
-
-	if !registry.AuthenticateWorker(workerID, message, sigBytes) {
-		http.Error(w, "worker authentication failed", http.StatusUnauthorized)
-	}
-
+	workerID := WorkerIDFromContext(r.Context())
 	var heartbeat registry.Heatbeat
 
-	err2 := json.NewEncoder(w).Encode(&heartbeat)
-	if err2 != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if err := json.NewEncoder(w).Encode(&heartbeat); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	registry.RegisterHeatbeat(heartbeat.ID)
-}
+	heartbeat.ID = workerID
 
-func abs(x int64) int64 {
-	if x < 0 {
-		return -x
+	if err := registry.RegisterHeatbeat(heartbeat); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	return x
 }

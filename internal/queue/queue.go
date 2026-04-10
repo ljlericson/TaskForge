@@ -47,9 +47,6 @@ func GetNextJobReq() (*job.JobRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	// console.C.Mutex.Lock()
-	// console.C.Log(key)
-	// console.C.Mutex.Unlock()
 
 	job, ok := queueStateInstance.reqMap[key]
 	if !ok {

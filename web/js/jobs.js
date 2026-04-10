@@ -1,13 +1,14 @@
+import { postRequest } from "./api.js"
+import { showStatus } from "./ui.js"
+
 document.addEventListener("DOMContentLoaded", () => {
 
     const form = document.getElementById("newJob")
 
     form.addEventListener("submit", async (e) => {
-
-        // stop page reload
+        console.log("asdas")
         e.preventDefault()
 
-        // get values from inputs
         const jobName = document.getElementById("jobName").value
         const timeoutSeconds = Number(document.getElementById("timeoutSeconds").value)
         const priority = Number(document.getElementById("priority").value)
@@ -27,6 +28,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const javaOpts = document.getElementById("javaOpts").value
 
         const serverIP = document.getElementById("serverIP").value
+        const route = "/jobs/submit";
+        const fullURL = `${serverIP}${route}`;
 
 
         // build JSON object
@@ -61,35 +64,17 @@ document.addEventListener("DOMContentLoaded", () => {
             priority: priority
         }
 
+        const button = document.getElementById("submitJob");
 
         try {
-
-            const response = await fetch(`http://${serverIP}/jobs/submit`, {
-
-                method: "POST",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
-                body: JSON.stringify(jobRequest)
-
-            })
-
-            if (!response.ok) {
-
-                throw new Error("Request failed")
-
-            }
-
-            const result = await response.json()
-
+            const result = await postRequest(fullURL, jobRequest)
             console.log("job created:", result)
+            showStatus(document.getElementById("submitJob"), "* job submitted", "success")
 
         } catch (err) {
 
             console.error("error:", err)
-
+            showStatus(button, "* job failed to submit, error: " + err.message, "error")
         }
 
     })

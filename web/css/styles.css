@@ -1,6 +1,6 @@
 body {
-    background-color:whitesmoke;
-    font-family:'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif
+    background-color: black;
+    font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif
 }
 
 .logo img {
@@ -9,7 +9,12 @@ body {
     object-fit: contain;
 }
 
+.jobFormTitle h2 {
+    color: aqua
+}
+
 .jobForm fieldset {
+    color: white;
     flex-direction: column;
     border: 1px solid #ccc;
     padding: 20px;
@@ -17,6 +22,7 @@ body {
 }
 
 .jobForm label {
+    color: white;
     display: inline-block;
     width: 200px;
     margin-right: 10px;
@@ -28,6 +34,7 @@ body {
 }
 
 .jobForm button {
-    width:150px;
-    height:30px;
+    color: blue;
+    width: 150px;
+    height: 30px;
 }

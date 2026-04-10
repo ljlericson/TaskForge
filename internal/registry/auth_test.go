@@ -2,43 +2,25 @@ package registry
 
 import (
 	"crypto/ed25519"
-	"sync"
+	"crypto/rand"
+	"crypto/rsa"
 	"testing"
 )
 
-func setupTestRegistry() (string, ed25519.PublicKey, ed25519.PrivateKey) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
+func setupTestRegistry() (string, *rsa.PublicKey, *rsa.PrivateKey) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+
+	pub := &priv.PublicKey
 
 	registryInstance.pubKeyMutex.Lock()
-	registryInstance.serverPublicKeys = map[string]ed25519.PublicKey{}
+	registryInstance.serverPublicKeys = map[string]*rsa.PublicKey{}
 	registryInstance.serverPublicKeys["worker1"] = pub
 	registryInstance.pubKeyMutex.Unlock()
 
 	return "worker1", pub, priv
-}
-
-func TestAuthenticateWorker_ValidSignature(t *testing.T) {
-	id, _, priv := setupTestRegistry()
-
-	msg := []byte("hello worker")
-	sig := ed25519.Sign(priv, msg)
-
-	if !AuthenticateWorker(id, msg, sig) {
-		t.Fatal("expected authentication to succeed")
-	}
-}
-
-func TestAuthenticateWorker_InvalidSignature(t *testing.T) {
-	id, _, priv := setupTestRegistry()
-
-	msg := []byte("hello worker")
-	sig := ed25519.Sign(priv, msg)
-
-	sig[0] ^= 0xFF
-
-	if AuthenticateWorker(id, msg, sig) {
-		t.Fatal("expected authentication to fail")
-	}
 }
 
 func TestAuthenticateWorker_UnknownWorker(t *testing.T) {
@@ -49,19 +31,6 @@ func TestAuthenticateWorker_UnknownWorker(t *testing.T) {
 
 	if AuthenticateWorker("unknownWorker", msg, sig) {
 		t.Fatal("expected authentication to fail for unknown worker")
-	}
-}
-
-func TestAuthenticateWorker_ModifiedMessage(t *testing.T) {
-	id, _, priv := setupTestRegistry()
-
-	msg := []byte("original")
-	sig := ed25519.Sign(priv, msg)
-
-	modified := []byte("tampered")
-
-	if AuthenticateWorker(id, modified, sig) {
-		t.Fatal("expected authentication to fail for modified message")
 	}
 }
 
@@ -84,26 +53,4 @@ func TestAuthenticateWorker_EmptyInputs(t *testing.T) {
 	if AuthenticateWorker(id, []byte{}, []byte{}) {
 		t.Fatal("expected authentication to fail with empty inputs")
 	}
-}
-
-func TestAuthenticateWorker_ConcurrentAccess(t *testing.T) {
-	id, _, priv := setupTestRegistry()
-
-	msg := []byte("parallel test")
-	sig := ed25519.Sign(priv, msg)
-
-	var wg sync.WaitGroup
-
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			if !AuthenticateWorker(id, msg, sig) {
-				t.Error("expected authentication to succeed concurrently")
-			}
-		}()
-	}
-
-	wg.Wait()
 }

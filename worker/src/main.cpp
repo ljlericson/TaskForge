@@ -4,10 +4,13 @@
 #include "jobs/heartbeat.hpp"
 #include "logger/logger.hpp"
 #include <atomic>
+#include <chrono>
 #include <format>
 #include <fstream>
+#include <latch>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <thread>
 
 int main() {
     std::ifstream file("config/worker.json");
@@ -23,20 +26,32 @@ int main() {
         return -1;
     }
 
+    // shared reasources
+    std::string workerID = j["id"].get<std::string>();
+    Logger::Infoln(
+        std::format("Registering with worker ID \"{}\"", workerID).c_str());
+    std::latch latch(2);
+    std::shared_ptr<std::atomic<uint8_t>> jobProgress =
+        std::make_shared<std::atomic<uint8_t>>(0);
+    std::shared_ptr<std::atomic<bool>> jobActive =
+        std::make_shared<std::atomic<bool>>(false);
     std::shared_ptr<std::atomic<bool>> cancelCtx =
         std::make_shared<std::atomic<bool>>(false);
+
     std::unique_ptr<Api::Client> client = std::make_unique<Api::Client>(
-        j["serverAddress"].get<std::string_view>(), j["id"].get<std::string>(),
+        cancelCtx, j["serverAddress"].get<std::string>(), workerID,
         j["privateKeyPath"].get<std::string>());
+
     std::unique_ptr<Jobs::Heartbeat> heartbeat =
-        std::make_unique<Jobs::Heartbeat>(cancelCtx, *client,
-                                          j["id"].get<std::string_view>());
+        std::make_unique<Jobs::Heartbeat>(cancelCtx, jobProgress, jobActive,
+                                          *client, workerID, latch);
+
+    std::unique_ptr<Jobs::Executor> executor = std::make_unique<Jobs::Executor>(
+        cancelCtx, jobProgress, jobActive, *client, latch);
 
     client->RegisterWorker();
     heartbeat->Run();
+    executor->Start();
 
-    while (true) {
-        using namespace std::chrono_literals;
-        std::this_thread::sleep_for(100ms);
-    }
+    latch.wait();
 }

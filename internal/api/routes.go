@@ -19,8 +19,8 @@ const LogoStr string = `
 
 func ConfigureRoutes(r *chi.Mux) {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(LogoStr)) })
-	r.Get("/jobs/next", JobNextHandler)
+	r.Get("/jobs/next", NextJobHandler)
 	r.Post("/jobs/submit", SubmitJobHandler)
-	r.Post("/workers/register", SubmitJobHandler)
-	r.Post("/workers/heartbeat", SubmitJobHandler)
+	r.Post("/workers/register", RegisterWorkerHandler)
+	r.Post("/workers/heartbeat", WorkerHeartbeatHandler)
 }

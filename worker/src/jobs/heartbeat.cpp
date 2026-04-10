@@ -6,7 +6,18 @@
 namespace Jobs {
     struct heartbeat {
         std::string id;
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE(heartbeat, id)
+        uint8_t jobProgress;
+        bool jobActive;
+
+        /*
+        {
+            "id": "worker1",
+            "jobProgress": 0,
+            "jobActive": false
+        }
+        */
+
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE(heartbeat, id, jobProgress, jobActive)
     };
 
     void Heartbeat::Run() {
@@ -18,9 +29,13 @@ namespace Jobs {
         while (!m_cancelCtx->load()) {
             // slightly less than every 5 seconds to account for transmission
             // time and to stay ahead of 5 second cut off
-            mr_client.Request("/workers/heartbeat",
-                              heartbeat{.id = m_workerID.data()});
+            mr_client.Request("/workers/heartbeat", "POST",
+                              heartbeat{.id = m_workerID,
+                                        .jobProgress = m_progress->load(),
+                                        .jobActive = m_jobActive->load()});
+
             std::this_thread::sleep_for(4500ms);
         }
+        mr_latch.count_down();
     }
 } // namespace Jobs

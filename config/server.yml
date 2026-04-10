@@ -7,5 +7,5 @@ logging:
   path: "logs/server.log"
 
 workers:
-  - id: worker1
-    pubkey: "AAAAC3NzaC1lZDI1NTE5AAAAIM8kDMZKcq4Qe+vpDGwukAXJvdb8BYLaFPJYbcPdZko4"
+  - id: "worker1"
+    pubkey: "../keys/worker1_pubkey.pem"

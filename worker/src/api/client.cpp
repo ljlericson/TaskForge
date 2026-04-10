@@ -8,16 +8,24 @@
 #define PANIC() exit(-1)
 
 namespace Api {
-    Client::Client(std::string_view address, const std::string& workerID,
+    Client::Client(std::shared_ptr<std::atomic<bool>>& cancelCtx,
+                   std::string_view address, const std::string& workerID,
                    std::string secretFPath)
-        : m_workerID(workerID), m_address(address) {
+        : m_cancelCtx(cancelCtx), m_workerID(workerID), m_address(address) {
         curl_global_init(CURL_GLOBAL_ALL);
         m_curl = curl_easy_init();
 
         std::ifstream file(secretFPath);
         if (!file.is_open()) {
-            Logger::Errln("private key file could not be opened");
+            Logger::Errln("private key file could not be opened, filepath: " +
+                          secretFPath);
             PANIC();
+        }
+
+        std::string line;
+        while (std::getline(file, line)) {
+            m_secret.append(line);
+            m_secret.push_back('\n');
         }
     }
 
@@ -32,6 +40,9 @@ namespace Api {
     };
 
     void Client::RegisterWorker() {
-        this->Request("/workers/register", registerRequest{.id = m_workerID});
+        if (!this->Request("/workers/register", "POST",
+                           registerRequest{.id = m_workerID})) {
+            m_cancelCtx->store(true);
+        }
     }
 } // namespace Api
