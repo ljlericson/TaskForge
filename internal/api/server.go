@@ -10,12 +10,12 @@ import (
 	"github.com/ljlericson/TaskForge/internal/logging"
 )
 
-func Server(ctx context.Context, addr string) error {
-	logging.Infoln("starting server")
+func Server(ctx context.Context, addr string, logger *logging.Logger, handler *Handler) error {
+	logger.Infoln("starting server")
 
 	r := chi.NewRouter()
 
-	r.Use(logging.RequestLogger())
+	r.Use(logger.RequestLogger())
 
 	r.Use(cors.Handler(cors.Options{
 
@@ -40,9 +40,7 @@ func Server(ctx context.Context, addr string) error {
 		MaxAge:           300,
 	}))
 
-	r.Use(AuthMiddleware)
-
-	ConfigureRoutes(r)
+	ConfigureRoutes(handler, r)
 
 	srv := &http.Server{
 		Addr:    addr,
@@ -58,7 +56,7 @@ func Server(ctx context.Context, addr string) error {
 	}()
 
 	<-ctx.Done()
-	logging.Infoln("shutting down server")
+	logger.Infoln("shutting down server")
 	shutdownCtx, cancel := context.WithTimeout(
 		context.Background(),
 		5*time.Second,

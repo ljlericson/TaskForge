@@ -10,7 +10,7 @@ import (
 )
 
 type heapItem struct {
-	id       string
+	id       job.JobID
 	priority int
 	index    int
 }
@@ -40,81 +40,77 @@ func (pq *priorityQueue) Pop() any {
 	return item
 }
 
-type heapState struct {
-	pq     priorityQueue
-	items  map[string]*heapItem
-	jobMap map[string]*job.Job
-	reqMap map[string]*job.JobRequest
-	mutex  sync.RWMutex
+type Heap struct {
+	pq    priorityQueue
+	items map[job.JobID]*heapItem
+	mutex sync.RWMutex
 }
 
-var heapStateInstance = heapState{
-	pq:     make(priorityQueue, 0),
-	items:  make(map[string]*heapItem),
-	jobMap: make(map[string]*job.Job),
-	reqMap: make(map[string]*job.JobRequest),
-	mutex:  sync.RWMutex{},
+func NewHeap() *Heap {
+	return &Heap{
+		pq:    make(priorityQueue, 0),
+		items: make(map[job.JobID]*heapItem),
+		mutex: sync.RWMutex{},
+	}
 }
 
-func Push(j *job.Job, req *job.JobRequest) error {
-	heapStateInstance.mutex.Lock()
-	defer heapStateInstance.mutex.Unlock()
-	if _, ok := heapStateInstance.items[j.ID]; ok {
+func (h *Heap) Push(j *job.Job, priority int) error {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+	if _, ok := h.items[j.ID]; ok {
 		return errors.New("job already exists")
 	}
 
 	item := &heapItem{
 		id:       j.ID,
-		priority: req.Priority,
+		priority: priority,
 	}
 
-	heap.Push(&heapStateInstance.pq, item)
-	heapStateInstance.items[j.ID] = item
-	heapStateInstance.jobMap[j.ID] = j
-	heapStateInstance.reqMap[j.ID] = req
+	heap.Push(&h.pq, item)
+	h.items[j.ID] = item
 
 	return nil
 }
 
-func Top() (string, error) {
-	heapStateInstance.mutex.RLock()
-	defer heapStateInstance.mutex.RUnlock()
-	if heapStateInstance.pq.Len() == 0 {
+func (h *Heap) Top() (job.JobID, error) {
+	h.mutex.RLock()
+	defer h.mutex.RUnlock()
+	if h.pq.Len() == 0 {
 		return "", errors.New("heap empty")
 	}
 
-	return heapStateInstance.pq[0].id, nil
+	return h.pq[0].id, nil
 }
 
-func Pop() (string, error) {
-	heapStateInstance.mutex.Lock()
-	defer heapStateInstance.mutex.Unlock()
-	if heapStateInstance.pq.Len() == 0 {
+func (h *Heap) Pop() (job.JobID, error) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+	if h.pq.Len() == 0 {
 		return "", errors.New("heap empty")
 	}
 
-	item := heap.Pop(&heapStateInstance.pq).(*heapItem)
+	item := heap.Pop(&h.pq).(*heapItem)
 
-	delete(heapStateInstance.items, item.id)
-	delete(heapStateInstance.jobMap, item.id)
-	delete(heapStateInstance.reqMap, item.id)
+	delete(h.items, item.id)
 
 	return item.id, nil
 }
 
-func Remove(id string) error {
-	heapStateInstance.mutex.Lock()
-	defer heapStateInstance.mutex.Unlock()
-	item, ok := heapStateInstance.items[id]
+func (h *Heap) Remove(id job.JobID) error {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+	item, ok := h.items[id]
 	if !ok {
 		return errors.New("job does not exist")
 	}
 
-	heap.Remove(&heapStateInstance.pq, item.index)
+	heap.Remove(&h.pq, item.index)
 
-	delete(heapStateInstance.items, id)
-	delete(heapStateInstance.jobMap, id)
-	delete(heapStateInstance.reqMap, id)
+	delete(h.items, id)
 
 	return nil
+}
+
+func (h *Heap) NumberOfItems() int {
+	return len(h.items)
 }

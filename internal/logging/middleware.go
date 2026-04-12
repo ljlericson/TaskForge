@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func RequestLogger() func(http.Handler) http.Handler {
+func (l *Logger) RequestLogger() func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 
@@ -18,7 +18,7 @@ func RequestLogger() func(http.Handler) http.Handler {
 
 			duration := time.Since(start)
 
-			Infoln(
+			l.Infoln(
 				fmt.Sprintf(
 					"%s %s %s %v",
 					r.Method,

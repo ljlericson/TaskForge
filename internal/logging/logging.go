@@ -71,9 +71,7 @@ type Logger struct {
 	mutex         sync.Mutex
 }
 
-var L *Logger
-
-func SetupLogger(path string) error {
+func NewLogger(path string) (*Logger, error) {
 
 	logDir := filepath.Dir(path)
 	err := os.MkdirAll(logDir, os.ModePerm)
@@ -86,12 +84,10 @@ func SetupLogger(path string) error {
 		panic(err2)
 	}
 
-	L = &Logger{
+	return &Logger{
 		fileLogger:    log.New(file, "", log.LstdFlags),
 		consoleLogger: log.New(os.Stdout, "", log.LstdFlags),
-	}
-
-	return nil
+	}, nil
 }
 
 func (l *Logger) log(col MesCol, level string, msg string) {
@@ -106,18 +102,18 @@ func (l *Logger) log(col MesCol, level string, msg string) {
 	l.fileLogger.Printf("[%s] %s", level, msg)
 }
 
-func Infoln(msg string) {
-	L.log(Cyan, "INFO", msg)
+func (l *Logger) Infoln(msg string) {
+	l.log(Cyan, "INFO", msg)
 }
 
-func Warnln(msg string) {
-	L.log(Yellow, "WARN", msg)
+func (l *Logger) Warnln(msg string) {
+	l.log(Yellow, "WARN", msg)
 }
 
-func Successln(msg string) {
-	L.log(Green, "SCCS", msg)
+func (l *Logger) Successln(msg string) {
+	l.log(Green, "SCCS", msg)
 }
 
-func Errorln(msg string) {
-	L.log(Red, "ERROR", msg)
+func (l *Logger) Errorln(msg string) {
+	l.log(Red, "ERROR", msg)
 }

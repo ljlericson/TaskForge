@@ -12,8 +12,8 @@ import (
 	"sync"
 
 	"github.com/ljlericson/TaskForge/internal/api"
+	"github.com/ljlericson/TaskForge/internal/heap"
 	"github.com/ljlericson/TaskForge/internal/input"
-	"github.com/ljlericson/TaskForge/internal/job"
 	"github.com/ljlericson/TaskForge/internal/logging"
 	"github.com/ljlericson/TaskForge/internal/queue"
 	"github.com/ljlericson/TaskForge/internal/registry"
@@ -52,22 +52,29 @@ func main() {
 		log.Fatalln(err)
 		return
 	}
-
 	addr := net.JoinHostPort(config.Server.Host, strconv.Itoa(config.Server.Port))
-
-	logging.SetupLogger(config.Logging.Path)
-	registry.InitRegistry(config.Workers)
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	var wg sync.WaitGroup
-
 	wg.Add(4)
+
+	logger, err := logging.NewLogger(config.Logging.Path)
+	if err != nil {
+		panic(err)
+	}
+
+	var (
+		registry  *registry.Registry   = registry.NewRegistry(logger)
+		heap      *heap.Heap           = heap.NewHeap()
+		queue     *queue.Queue         = queue.NewQueue(heap, logger)
+		scheduler *scheduler.Scheduler = scheduler.NewScheduler(queue, registry, logger)
+		handler   *api.Handler         = api.NewHandler(scheduler, queue, registry, logger)
+	)
 
 	go func() {
 		defer wg.Done()
-		api.Server(ctx, addr)
+		api.Server(ctx, addr, logger, handler)
 	}()
 
 	go func() {
@@ -98,45 +105,7 @@ func inputHandler(input string) {
 		}
 
 		switch args[0] {
-		case "logo":
-			logging.Infoln(api.LogoStr)
-		case "job":
-			if len(args) == 3 {
-				j := job.Job{}
-				jr := job.JobRequest{}
-				priority, err := strconv.Atoi(args[2])
-				if err != nil {
-					logging.Errorln(err.Error())
-					continue
-				}
-				j.ID = args[1]
-				jr.Priority = priority
-				err2 := queue.AddJobToQueue(&j, &jr)
-				if err2 != nil {
-					logging.Errorln(err2.Error())
-				}
-			}
 
-		case "getjob":
-			job, err := queue.GetNextJobReq()
-			if err != nil {
-				logging.Errorln(err.Error())
-				continue
-			}
-
-			err2 := queue.RemoveJobFromQueue(job.JobName)
-			if err2 != nil {
-				logging.Errorln(err2.Error())
-				continue
-			}
-
-			logging.Infoln(fmt.Sprintf("%s : %d", job.JobName, job.Priority))
-
-		case "num":
-			logging.Infoln(fmt.Sprintf("number of jobs: %d", queue.GetSizeOfQueue()))
-
-		default:
-			logging.Infoln("Command " + args[0] + " is not a valid command")
 		}
 	}
 }

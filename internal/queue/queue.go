@@ -5,85 +5,122 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/ljlericson/TaskForge/internal/heap"
 	"github.com/ljlericson/TaskForge/internal/job"
 )
 
-type queueState struct {
-	jobMap map[string]*job.Job
-	reqMap map[string]*job.JobRequest
+type Heap interface {
+	Remove(id job.JobID) error
+	NumberOfItems() int
+	Pop() (job.JobID, error)
+	Push(j *job.Job, priority int) error
+}
+
+type Logger interface {
+	Infoln(msg string)
+	Warnln(msg string)
+	Successln(msg string)
+	Errorln(msg string)
+}
+
+type Queue struct {
+	heap   Heap
+	logger Logger
+	jobMap map[job.JobID]*job.Job
+	reqMap map[job.JobID]*job.JobRequest
 	mutex  sync.RWMutex
 }
 
-var queueStateInstance = queueState{
-	jobMap: make(map[string]*job.Job),
-	reqMap: make(map[string]*job.JobRequest),
-	mutex:  sync.RWMutex{},
+func NewQueue(h Heap, l Logger) *Queue {
+	return &Queue{
+		heap:   h,
+		logger: l,
+		jobMap: make(map[job.JobID]*job.Job),
+		reqMap: make(map[job.JobID]*job.JobRequest),
+		mutex:  sync.RWMutex{},
+	}
 }
 
-func AddJobToQueue(j *job.Job, jr *job.JobRequest) error {
-	queueStateInstance.mutex.Lock()
-	defer queueStateInstance.mutex.Unlock()
-	if _, ok := queueStateInstance.jobMap[j.ID]; ok {
+func (q *Queue) AddJobToQueue(j *job.Job, jr *job.JobRequest) error {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+	if _, ok := q.jobMap[j.ID]; ok {
 		return errors.New("job already exists")
 	}
 
-	err := heap.Push(j, jr)
+	err := q.heap.Push(j, jr.Priority)
 	if err != nil {
 		return err
 	}
 
-	queueStateInstance.jobMap[j.ID] = j
-	queueStateInstance.reqMap[j.ID] = jr
+	q.jobMap[j.ID] = j
+	q.reqMap[j.ID] = jr
 
 	return nil
 }
 
-func GetNextJobReq() (*job.JobRequest, error) {
-	queueStateInstance.mutex.RLock()
-	defer queueStateInstance.mutex.RUnlock()
+func (q *Queue) GetNextJob() (job.JobID, error) {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
 
-	key, err := heap.Pop()
+	key, err := q.heap.Pop()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	job, ok := queueStateInstance.reqMap[key]
+	_, ok := q.reqMap[key]
 	if !ok {
 		// should be impossible
 		panic("job returned by heap does not exist")
 	}
 
-	return job, nil
+	return key, nil
 }
 
-func ReturnJobToQueue(ID string) error {
-	queueStateInstance.mutex.Lock()
-	defer queueStateInstance.mutex.Unlock()
+func (q *Queue) GetJobRequestFromID(ID job.JobID) (*job.JobRequest, error) {
+	jr, ok := q.reqMap[ID]
+	if !ok {
+		return nil, errors.New("job (ID: " + string(ID) + ") does not exist")
+	}
+	return jr, nil
+}
 
-	if _, ok := queueStateInstance.reqMap[ID]; !ok {
+func (q *Queue) ReturnJobToQueue(ID job.JobID) error {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
+	if _, ok := q.reqMap[ID]; !ok {
 		return errors.New("job was not in queue")
 	}
 
-	err := heap.Push(queueStateInstance.jobMap[ID], queueStateInstance.reqMap[ID])
+	err := q.heap.Push(q.jobMap[ID], q.reqMap[ID].Priority)
 	return err
 }
 
-func RemoveJobFromQueue(ID string) error {
-	queueStateInstance.mutex.Lock()
-	defer queueStateInstance.mutex.Unlock()
+func (q *Queue) RemoveJobFromQueue(ID job.JobID) error {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
 
-	if _, ok := queueStateInstance.reqMap[ID]; !ok {
+	if _, ok := q.reqMap[ID]; !ok {
 		return errors.New("job was not in queue")
 	}
 
-	delete(queueStateInstance.jobMap, ID)
-	delete(queueStateInstance.reqMap, ID)
+	delete(q.jobMap, ID)
+	delete(q.reqMap, ID)
 	return nil
 }
 
-func GetSizeOfQueue() int {
-	queueStateInstance.mutex.RLock()
-	defer queueStateInstance.mutex.RUnlock()
-	return len(queueStateInstance.jobMap)
+func (q *Queue) GetJobPriority(ID job.JobID) (int, error) {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+	jr, ok := q.reqMap[ID]
+	if !ok {
+		return 0, errors.New("job does not exist")
+	}
+	return jr.Priority, nil
+}
+
+func (q *Queue) GetSizeOfQueue() int {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+	return len(q.jobMap)
 }

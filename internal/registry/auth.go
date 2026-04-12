@@ -7,10 +7,10 @@ import (
 	"crypto/sha256"
 )
 
-func AuthenticateWorker(workerID string, message, signature []byte) bool {
-	registryInstance.pubKeyMutex.RLock()
-	pub, ok := registryInstance.serverPublicKeys[workerID]
-	registryInstance.pubKeyMutex.RUnlock()
+func (r *Registry) AuthenticateWorker(workerID string, message, signature []byte) bool {
+	r.pubKeyMutex.RLock()
+	pub, ok := r.serverPublicKeys[workerID]
+	r.pubKeyMutex.RUnlock()
 
 	if !ok {
 		return false

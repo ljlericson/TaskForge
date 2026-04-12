@@ -11,11 +11,10 @@ import (
 	"slices"
 	"sync"
 	"time"
-
-	"github.com/ljlericson/TaskForge/internal/logging"
 )
 
 type NodeStatus string
+type NodeID string
 
 const (
 	NodeHealthy NodeStatus = "healthy"
@@ -31,36 +30,46 @@ type WorkerConfig struct {
 // heartbeat every 5s
 // timeout after 15s
 type Node struct {
-	ID            string `json:"id"`
+	ID            NodeID
 	Status        NodeStatus
 	JobActive     bool
 	LastHeartBeat time.Time
 }
 
 type Heatbeat struct {
-	ID          string `json:"id"`
-	JobProgress uint8  `json:"jobProgress"`
-	JobActive   bool   `json:"jobActive"`
+	ID string `json:"id"`
 }
 
-type registryState struct {
+type Logger interface {
+	Infoln(msg string)
+	Warnln(msg string)
+	Successln(msg string)
+	Errorln(msg string)
+}
+
+type Registry struct {
+	logger Logger
+
 	pubKeyMutex      sync.RWMutex
 	serverPublicKeys map[string]*rsa.PublicKey
 
 	workerNodeMutex sync.RWMutex
-	workerNodes     map[string]*Node
+	workerNodes     map[NodeID]*Node
 
 	deadNodeMutex sync.RWMutex
-	deadNodes     []string
+	deadNodes     []NodeID
 }
 
-var registryInstance *registryState = &registryState{
-	pubKeyMutex:      sync.RWMutex{},
-	serverPublicKeys: make(map[string]*rsa.PublicKey),
-	workerNodeMutex:  sync.RWMutex{},
-	workerNodes:      make(map[string]*Node),
-	deadNodeMutex:    sync.RWMutex{},
-	deadNodes:        []string{},
+func NewRegistry(l Logger) *Registry {
+	return &Registry{
+		logger:           l,
+		pubKeyMutex:      sync.RWMutex{},
+		serverPublicKeys: make(map[string]*rsa.PublicKey),
+		workerNodeMutex:  sync.RWMutex{},
+		workerNodes:      make(map[NodeID]*Node),
+		deadNodeMutex:    sync.RWMutex{},
+		deadNodes:        []NodeID{},
+	}
 }
 
 func parseRSAPublicKeyFromFile(path string) (*rsa.PublicKey, error) {
@@ -87,81 +96,80 @@ func parseRSAPublicKeyFromFile(path string) (*rsa.PublicKey, error) {
 	return pub, nil
 }
 
-func InitRegistry(wc []WorkerConfig) {
-	logging.Infoln("setting up registry")
+func (r *Registry) InitRegistry(wc []WorkerConfig) {
+	r.logger.Infoln("setting up registry")
 
-	registryInstance.pubKeyMutex.Lock()
-	defer registryInstance.pubKeyMutex.Unlock()
+	r.pubKeyMutex.Lock()
+	defer r.pubKeyMutex.Unlock()
 
 	for _, val := range wc {
 		pub, err := parseRSAPublicKeyFromFile(val.PubKey)
 		if err != nil {
-			logging.Errorln("failed loading public key for worker " + val.ID + ": " + err.Error())
+			r.logger.Errorln("failed loading public key for worker " + val.ID + ": " + err.Error())
 			continue
 		}
 
-		registryInstance.serverPublicKeys[val.ID] = pub
+		r.serverPublicKeys[val.ID] = pub
 	}
 }
 
-func RegisterNode(node *Node) error {
-	registryInstance.workerNodeMutex.Lock()
-	defer registryInstance.workerNodeMutex.Unlock()
+func (r *Registry) RegisterNode(node *Node) error {
+	r.workerNodeMutex.Lock()
+	defer r.workerNodeMutex.Unlock()
 
-	if _, ok := registryInstance.workerNodes[node.ID]; ok {
+	if _, ok := r.workerNodes[node.ID]; ok {
 		return errors.New("worker already registered")
 	}
 
-	registryInstance.workerNodes[node.ID] = node
+	r.workerNodes[node.ID] = node
 	return nil
 }
 
-func GetFreeNode() (*Node, error) {
-	registryInstance.workerNodeMutex.RLock()
-	for _, n := range registryInstance.workerNodes {
+func (r *Registry) GetFreeNode() (NodeID, error) {
+	r.workerNodeMutex.RLock()
+	for _, n := range r.workerNodes {
 		if !n.JobActive {
-			return n, nil
+			return n.ID, nil
 		}
 	}
-	registryInstance.workerNodeMutex.RUnlock()
-	return nil, errors.New("no available node")
+	r.workerNodeMutex.RUnlock()
+	return "", errors.New("no available node")
 }
 
-// TODO, add status and progress updates to heartbeat
-func RegisterHeatbeat(heartbeat Heatbeat) error {
-	registryInstance.workerNodeMutex.Lock()
-	defer registryInstance.workerNodeMutex.Unlock()
-	node, ok := registryInstance.workerNodes[heartbeat.ID]
+func (r *Registry) RegisterHeatbeat(nodeID NodeID) error {
+	r.workerNodeMutex.Lock()
+	defer r.workerNodeMutex.Unlock()
+	node, ok := r.workerNodes[nodeID]
 	if !ok {
 		return errors.New("worker does not exist")
 	}
 
-	if !IsNodeDead(node.ID) {
-		node.LastHeartBeat = time.Now()
-		node.JobActive = heartbeat.JobActive
-		node.Status = NodeHealthy
+	if !r.IsNodeDead(node.ID) {
+		r.logger.Successln("node (ID: " + string(nodeID) + ") has come alive again")
 	}
+	node.LastHeartBeat = time.Now()
+	node.Status = NodeHealthy
 	return nil
 }
 
-func CheckHeartbeats(ctx context.Context) {
-	logging.Infoln("starting worker heartbeat loop")
+func (r *Registry) CheckHeartbeats(ctx context.Context) {
+	r.logger.Infoln("starting worker heartbeat loop")
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			logging.Infoln("shutting down worker heartbeat loop")
+			r.logger.Infoln("shutting down worker heartbeat loop")
 			return
 		case <-ticker.C:
-			registryInstance.workerNodeMutex.Lock()
-			nodesToRemove := []string{}
-			for _, node := range registryInstance.workerNodes {
+			r.workerNodeMutex.Lock()
+			nodesToRemove := []NodeID{}
+			for _, node := range r.workerNodes {
 				if time.Since(node.LastHeartBeat) > 6*time.Second {
 					switch node.Status {
 					case NodeHealthy:
 						node.Status = NodePending
-						logging.Infoln("node (ID: " + node.ID + ") has missed a heartbeat")
+						r.logger.Infoln("node (ID: " + string(node.ID) + ") has missed a heartbeat")
 					case NodePending:
 						node.Status = NodeDead
 					case NodeDead:
@@ -170,22 +178,22 @@ func CheckHeartbeats(ctx context.Context) {
 				}
 			}
 			for _, ID := range nodesToRemove {
-				logging.Warnln("node (ID: " + ID + ") has been removed")
-				delete(registryInstance.workerNodes, ID)
+				r.logger.Warnln("node (ID: " + string(ID) + ") has been removed")
+				delete(r.workerNodes, ID)
 			}
-			registryInstance.workerNodeMutex.Unlock()
+			r.workerNodeMutex.Unlock()
 
-			registryInstance.deadNodeMutex.Lock()
-			registryInstance.deadNodes = append(registryInstance.deadNodes, nodesToRemove...)
-			registryInstance.deadNodeMutex.Unlock()
+			r.deadNodeMutex.Lock()
+			r.deadNodes = append(r.deadNodes, nodesToRemove...)
+			r.deadNodeMutex.Unlock()
 
 			time.Sleep(3 * time.Second)
 		}
 	}
 }
 
-func IsNodeDead(ID string) bool {
-	registryInstance.deadNodeMutex.RLock()
-	defer registryInstance.deadNodeMutex.RUnlock()
-	return slices.Contains(registryInstance.deadNodes, ID)
+func (r *Registry) IsNodeDead(ID NodeID) bool {
+	r.deadNodeMutex.RLock()
+	defer r.deadNodeMutex.RUnlock()
+	return slices.Contains(r.deadNodes, ID)
 }

@@ -58,9 +58,6 @@ namespace Api {
                 curl_easy_setopt(m_curl, CURLOPT_COPYPOSTFIELDS, body.c_str());
             }
 
-            Logger::Warnln("BODY: " + body);
-            Logger::Warnln("SIZE: " + std::to_string(body.size()));
-
             CURLcode res = curl_easy_perform(m_curl);
 
             curl_slist_free_all(headers);

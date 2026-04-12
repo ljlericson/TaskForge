@@ -17,10 +17,20 @@ const LogoStr string = `
 
 	`
 
-func ConfigureRoutes(r *chi.Mux) {
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(LogoStr)) })
-	r.Get("/jobs/next", NextJobHandler)
-	r.Post("/jobs/submit", SubmitJobHandler)
-	r.Post("/workers/register", RegisterWorkerHandler)
-	r.Post("/workers/heartbeat", WorkerHeartbeatHandler)
+func ConfigureRoutes(h *Handler, r *chi.Mux) {
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(LogoStr))
+	})
+
+	// public routes
+	r.Post("/jobs/submit", h.SubmitJobHandler)
+
+	// protected routes
+	r.Group(func(r chi.Router) {
+		r.Use(h.AuthMiddleware)
+
+		r.Get("/jobs/next", h.NextJobHandler)
+		r.Post("/workers/register", h.RegisterWorkerHandler)
+		r.Post("/workers/heartbeat", h.WorkerHeartbeatHandler)
+	})
 }

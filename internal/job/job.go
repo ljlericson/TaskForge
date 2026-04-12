@@ -3,22 +3,19 @@ package job
 
 import "time"
 
-type Job struct {
-	ID        string
-	Status    string
-	Tasks     []*Task
-	CreatedAt time.Time
-}
+type JobStatus string
+type JobID string
 
-type Task struct {
-	ID          string
-	JobID       string
-	Input       string
-	Output      string
-	Status      string
-	WorkerID    string
-	Attempt     int
-	LeaseExpiry int64
+const (
+	JobFinished JobStatus = "JobFinished"
+	JobActive   JobStatus = "JobActive"
+)
+
+type Job struct {
+	ID        JobID
+	Status    JobStatus
+	Progress  int
+	CreatedAt time.Time
 }
 
 type JobRequest struct {

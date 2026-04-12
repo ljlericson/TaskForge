@@ -4,7 +4,6 @@
 namespace Jobs {
     void Executor::Start() {
         m_workerThread = std::jthread(&Executor::requestJob, this);
-        nlohmann::json j;
     }
 
     void Executor::requestJob() {
