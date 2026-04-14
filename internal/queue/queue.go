@@ -4,6 +4,7 @@ package queue
 import (
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/ljlericson/TaskForge/internal/job"
 )
@@ -40,19 +41,23 @@ func NewQueue(h Heap, l Logger) *Queue {
 	}
 }
 
-func (q *Queue) AddJobToQueue(j *job.Job, jr *job.JobRequest) error {
+func (q *Queue) AddJobToQueue(jr *job.JobRequest) error {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
+	var j job.Job
+	j.ID = job.JobID(jr.JobName)
+	j.CreatedAt = time.Now()
+
 	if _, ok := q.jobMap[j.ID]; ok {
 		return errors.New("job already exists")
 	}
 
-	err := q.heap.Push(j, jr.Priority)
+	err := q.heap.Push(&j, jr.Priority)
 	if err != nil {
 		return err
 	}
 
-	q.jobMap[j.ID] = j
+	q.jobMap[j.ID] = &j
 	q.reqMap[j.ID] = jr
 
 	return nil

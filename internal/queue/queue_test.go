@@ -13,17 +13,14 @@ func setupQueue() *Queue {
 	q := NewQueue(heap.NewHeap(), logger)
 
 	jr := job.JobRequest{Priority: 1}
-	j := job.Job{ID: "job1"}
 
 	jr2 := job.JobRequest{Priority: 2}
-	j2 := job.Job{ID: "job2"}
 
 	jr3 := job.JobRequest{Priority: 3}
-	j3 := job.Job{ID: "job3"}
 
-	q.AddJobToQueue(&j3, &jr3)
-	q.AddJobToQueue(&j, &jr)
-	q.AddJobToQueue(&j2, &jr2)
+	q.AddJobToQueue(&jr3)
+	q.AddJobToQueue(&jr)
+	q.AddJobToQueue(&jr2)
 	return q
 }
 

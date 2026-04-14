@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
-	"time"
 
 	"github.com/ljlericson/TaskForge/internal/job"
 	"github.com/ljlericson/TaskForge/internal/registry"
@@ -14,11 +12,15 @@ import (
 
 type Queue interface {
 	GetNextJob() (job.JobID, error)
+	AddJobToQueue(jr *job.JobRequest) error
 	ReturnJobToQueue(job.JobID) error
 	RemoveJobFromQueue(job.JobID) error
 }
 
 type Registry interface {
+	GetIdleNodesChan() <-chan registry.NodeID
+	GetDeadNodesChan() <-chan registry.NodeID
+
 	IsNodeDead(registry.NodeID) bool
 	GetFreeNode() (registry.NodeID, error)
 }
@@ -37,91 +39,122 @@ type task struct {
 }
 
 type Scheduler struct {
+	jobSubmited  <-chan job.JobRequest
+	nodeIdle     <-chan registry.NodeID
+	nodeDead     <-chan registry.NodeID
+	activeJobs   chan job.JobID
+	errorChan    chan error
+	jobCompleted chan job.JobID
+	jobFailed    chan job.JobID
+
 	queue           Queue
 	registry        Registry
 	logger          Logger
 	activeTasks     map[job.JobID]*task // Tasks use same ID as jobs to avoid complication
 	nodeIDToTask    map[registry.NodeID]job.JobID
 	attemptsPerTask map[job.JobID]int
-	mutex           sync.RWMutex
+	idleNodes       []registry.NodeID
 }
 
-func NewScheduler(q Queue, r Registry, l Logger) *Scheduler {
+func NewScheduler(q Queue, r Registry, l Logger, jobSumitted <-chan job.JobRequest) *Scheduler {
 	return &Scheduler{
+		jobSubmited: jobSumitted,
+		nodeIdle:    r.GetIdleNodesChan(),
+		nodeDead:    r.GetIdleNodesChan(),
+		activeJobs:  make(chan job.JobID),
+
 		queue:        q,
 		registry:     r,
 		logger:       l,
 		activeTasks:  make(map[job.JobID]*task),
 		nodeIDToTask: make(map[registry.NodeID]job.JobID),
-		mutex:        sync.RWMutex{},
+		idleNodes:    make([]registry.NodeID, 0),
 	}
+}
+
+func (s *Scheduler) GetActiveJobsChan() <-chan job.JobID {
+	return s.activeJobs
+}
+
+func (s *Scheduler) GetErrorsChan() <-chan error {
+	return s.errorChan
+}
+
+func (s *Scheduler) GetJobCompletedChan() <-chan job.JobID {
+	return s.jobCompleted
+}
+
+func (s *Scheduler) GetJobFailedChan() <-chan job.JobID {
+	return s.jobFailed
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
 	s.logger.Infoln("starting scheduler")
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			s.logger.Infoln("shutting down scheduler")
 			return
-		case <-ticker.C:
-			// first check if any of the active ndoes are dead
-			s.mutex.RLock()
-			tasks := make([]*task, 0, len(s.activeTasks))
-			for _, t := range s.activeTasks {
-				tasks = append(tasks, t)
+		case nodeID := <-s.nodeDead:
+			jobID, ok := s.nodeIDToTask[nodeID]
+			if !ok {
+				// dead node was idle
+				continue
 			}
-			s.mutex.RUnlock()
+			s.failJob(jobID)
 
-			for _, task := range tasks {
-				if s.registry.IsNodeDead(task.NodeID) {
-					s.JobFailed(task.JobID)
-				}
+		case jr := <-s.jobSubmited:
+			if err := s.queue.AddJobToQueue(&jr); err != nil {
+				s.logger.Errorln("error adding job to queue " + err.Error())
+				s.errorChan <- err
+				continue
 			}
-			// then check for new jobs and allocate jobs to free nodes
-			if jobID, err := s.queue.GetNextJob(); err == nil {
-				nodeID, err := s.registry.GetFreeNode()
-				if err != nil {
-					s.queue.ReturnJobToQueue(jobID)
-					continue
-				}
 
-				s.mutex.Lock()
-				_, ok := s.attemptsPerTask[jobID]
-				if !ok {
-					s.attemptsPerTask[jobID] = 0
-				} else {
-					s.attemptsPerTask[jobID]++
-				}
-				s.activeTasks[jobID] = &task{JobID: jobID, NodeID: nodeID, Attempt: s.attemptsPerTask[jobID]}
-				s.nodeIDToTask[nodeID] = jobID
-				s.mutex.Unlock()
-			}
+		case nodeID := <-s.nodeIdle:
+			s.idleNodes = append(s.idleNodes, nodeID)
+			s.assignJobs()
 		}
 	}
 }
 
-func (s *Scheduler) JobComplete(jobID job.JobID) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	_, ok := s.activeTasks[jobID]
+func (s *Scheduler) assignJobs() {
+	for len(s.idleNodes) > 0 {
+		jobID, err := s.queue.GetNextJob()
+		if err != nil {
+			// no more jobs in queue
+			return
+		}
+
+		nodeID := s.idleNodes[0]
+		s.idleNodes = s.idleNodes[1:]
+
+		s.activeJobs <- jobID
+		s.logger.Infoln(fmt.Sprintf("job (ID: %s) assigned to node (ID: %s)", string(jobID), string(nodeID)))
+
+		s.activeTasks[jobID] = &task{
+			JobID:   jobID,
+			NodeID:  nodeID,
+			Attempt: s.attemptsPerTask[jobID],
+		}
+		s.nodeIDToTask[nodeID] = jobID
+	}
+}
+
+func (s *Scheduler) completeJob(jobID job.JobID) error {
+	task, ok := s.activeTasks[jobID]
 	if !ok {
 		return errors.New("job not found")
 	}
 
 	s.logger.Successln(fmt.Sprintf("job (ID: %s) SUCCEEDED, job removed from queue", string(jobID)))
 	delete(s.activeTasks, jobID)
-	delete(s.nodeIDToTask, s.activeTasks[jobID].NodeID)
+	delete(s.nodeIDToTask, task.NodeID)
 	s.queue.RemoveJobFromQueue(jobID)
 	return nil
 }
 
-func (s *Scheduler) JobFailed(jobID job.JobID) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+func (s *Scheduler) failJob(jobID job.JobID) error {
 	task, ok := s.activeTasks[jobID]
 	if !ok {
 		return errors.New("job not found")
@@ -135,9 +168,7 @@ func (s *Scheduler) JobFailed(jobID job.JobID) error {
 	return nil
 }
 
-func (s *Scheduler) JobIDForNode(NodeID registry.NodeID) (job.JobID, error) {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
+func (s *Scheduler) jobIDForNode(NodeID registry.NodeID) (job.JobID, error) {
 	jobID, ok := s.nodeIDToTask[NodeID]
 
 	if !ok {
