@@ -2,6 +2,7 @@
   "name": "taskforge-worker",
   "dependencies": [
     "nlohmann-json",
-    "curl"
+    "curl",
+    "openssl"
   ]
 }
