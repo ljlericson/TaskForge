@@ -34,18 +34,34 @@ const (
 )
 
 type Handler struct {
+	jobSubmitted     chan job.JobRequest
+	nodeIdle         chan registry.NodeID
+	nodeHeartBeat    chan registry.NodeID
+	schedulerErrChan <-chan error
+
 	scheduler *scheduler.Scheduler
 	queue     *queue.Queue
 	registry  *registry.Registry
 	logger    *logging.Logger
 }
 
-func NewHandler(s *scheduler.Scheduler, q *queue.Queue, r *registry.Registry, l *logging.Logger) *Handler {
+func NewHandler(s *scheduler.Scheduler,
+	q *queue.Queue,
+	r *registry.Registry,
+	l *logging.Logger,
+	jobSubmitted chan job.JobRequest,
+	nodeIdle chan registry.NodeID,
+	nodeHeartBeat chan registry.NodeID,
+) *Handler {
 	return &Handler{
-		scheduler: s,
-		queue:     q,
-		registry:  r,
-		logger:    l,
+		jobSubmitted:     jobSubmitted,
+		nodeIdle:         nodeIdle,
+		nodeHeartBeat:    nodeHeartBeat,
+		schedulerErrChan: s.GetErrorsChan(),
+		scheduler:        s,
+		queue:            q,
+		registry:         r,
+		logger:           l,
 	}
 }
 
@@ -84,6 +100,7 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "failed to read body", http.StatusBadRequest)
 			return
 		}
+
 		r.Body.Close()
 
 		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -108,7 +125,7 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func WorkerIDFromContext(ctx context.Context) string {
+func workerIDFromContext(ctx context.Context) string {
 	v, ok := ctx.Value(workerIDKey).(string)
 	if !ok {
 		return ""
@@ -117,9 +134,9 @@ func WorkerIDFromContext(ctx context.Context) string {
 }
 
 func (h *Handler) NextJobHandler(w http.ResponseWriter, r *http.Request) {
-	workerID := WorkerIDFromContext(r.Context())
+	workerID := workerIDFromContext(r.Context())
 
-	jobID, err := h.scheduler.JobIDForNode(registry.NodeID(workerID))
+	jobID, err := h.scheduler.RequestJob(registry.NodeID(workerID))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNoContent)
 		return
@@ -128,6 +145,7 @@ func (h *Handler) NextJobHandler(w http.ResponseWriter, r *http.Request) {
 	jr, err := h.queue.GetJobRequestFromID(jobID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -140,18 +158,14 @@ func (h *Handler) NextJobHandler(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 	var jr job.JobRequest
-	var j job.Job
 
-	err := json.NewDecoder(r.Body).Decode(&jr)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&jr); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 
-	j.ID = job.JobID(jr.JobName)
-	j.CreatedAt = time.Now()
-
-	if err := h.queue.AddJobToQueue(&j, &jr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	h.jobSubmitted <- jr
+	if err := <-h.schedulerErrChan; err != nil {
+		h.logger.Errorln(err.Error())
 	}
 
 	h.logger.Infoln("new job submitted (ID: " + jr.JobName + ")")
@@ -174,10 +188,7 @@ func (h *Handler) RegisterWorkerHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) WorkerHeartbeatHandler(w http.ResponseWriter, r *http.Request) {
-	workerID := WorkerIDFromContext(r.Context())
+	workerID := workerIDFromContext(r.Context())
 
-	if err := h.registry.RegisterHeatbeat(registry.NodeID(workerID)); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+	h.nodeHeartBeat <- registry.NodeID(workerID)
 }

@@ -1,4 +1,4 @@
-// Package registry
+// Package registry manages worker node authentication and health
 package registry
 
 import (
@@ -8,7 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"os"
-	"slices"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -19,7 +19,6 @@ type NodeID string
 const (
 	NodeHealthy NodeStatus = "healthy"
 	NodePending NodeStatus = "pending"
-	NodeDead    NodeStatus = "dead"
 )
 
 type WorkerConfig struct {
@@ -30,14 +29,10 @@ type WorkerConfig struct {
 // heartbeat every 5s
 // timeout after 15s
 type Node struct {
-	ID            NodeID
-	Status        NodeStatus
-	JobActive     bool
-	LastHeartBeat time.Time
-}
-
-type Heatbeat struct {
-	ID string `json:"id"`
+	ID               NodeID
+	MissedHeartBeats int
+	Status           NodeStatus
+	LastHeartBeat    time.Time
 }
 
 type Logger interface {
@@ -48,6 +43,12 @@ type Logger interface {
 }
 
 type Registry struct {
+	nodeRegistered <-chan NodeID
+	nodeHeartBeat  <-chan NodeID
+	nodeIdle       chan NodeID
+	nodeDead       chan NodeID
+	errorChan      chan error
+
 	logger Logger
 
 	pubKeyMutex      sync.RWMutex
@@ -55,21 +56,27 @@ type Registry struct {
 
 	workerNodeMutex sync.RWMutex
 	workerNodes     map[NodeID]*Node
-
-	deadNodeMutex sync.RWMutex
-	deadNodes     []NodeID
 }
 
-func NewRegistry(l Logger) *Registry {
+func NewRegistry(l Logger, nodeHeartBeat <-chan NodeID) *Registry {
 	return &Registry{
+		nodeHeartBeat:    nodeHeartBeat,
+		nodeIdle:         make(chan NodeID, 100),
+		nodeDead:         make(chan NodeID, 100),
 		logger:           l,
 		pubKeyMutex:      sync.RWMutex{},
 		serverPublicKeys: make(map[string]*rsa.PublicKey),
 		workerNodeMutex:  sync.RWMutex{},
 		workerNodes:      make(map[NodeID]*Node),
-		deadNodeMutex:    sync.RWMutex{},
-		deadNodes:        []NodeID{},
 	}
+}
+
+func (r *Registry) GetIdleNodesChan() <-chan NodeID {
+	return r.nodeIdle
+}
+
+func (r *Registry) GetDeadNodesChan() <-chan NodeID {
+	return r.nodeDead
 }
 
 func parseRSAPublicKeyFromFile(path string) (*rsa.PublicKey, error) {
@@ -125,75 +132,37 @@ func (r *Registry) RegisterNode(node *Node) error {
 	return nil
 }
 
-func (r *Registry) GetFreeNode() (NodeID, error) {
-	r.workerNodeMutex.RLock()
-	for _, n := range r.workerNodes {
-		if !n.JobActive {
-			return n.ID, nil
-		}
-	}
-	r.workerNodeMutex.RUnlock()
-	return "", errors.New("no available node")
-}
-
-func (r *Registry) RegisterHeatbeat(nodeID NodeID) error {
-	r.workerNodeMutex.Lock()
-	defer r.workerNodeMutex.Unlock()
-	node, ok := r.workerNodes[nodeID]
-	if !ok {
-		return errors.New("worker does not exist")
-	}
-
-	if !r.IsNodeDead(node.ID) {
-		r.logger.Successln("node (ID: " + string(nodeID) + ") has come alive again")
-	}
-	node.LastHeartBeat = time.Now()
-	node.Status = NodeHealthy
-	return nil
-}
-
-func (r *Registry) CheckHeartbeats(ctx context.Context) {
-	r.logger.Infoln("starting worker heartbeat loop")
-	ticker := time.NewTicker(3 * time.Second)
+func (r *Registry) Start(ctx context.Context) {
+	r.logger.Infoln("starting registry")
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			r.logger.Infoln("shutting down worker heartbeat loop")
 			return
+		case nodeID := <-r.nodeHeartBeat:
+			node, ok := r.workerNodes[nodeID]
+			if !ok {
+				r.errorChan <- errors.New("node (ID: " + string(node.ID) + ") is not registered")
+			} else {
+				node.LastHeartBeat = time.Now()
+				node.Status = NodeHealthy
+			}
 		case <-ticker.C:
-			r.workerNodeMutex.Lock()
-			nodesToRemove := []NodeID{}
-			for _, node := range r.workerNodes {
+			for nodeID, node := range r.workerNodes {
 				if time.Since(node.LastHeartBeat) > 6*time.Second {
-					switch node.Status {
-					case NodeHealthy:
+					if node.MissedHeartBeats < 4 {
+						node.MissedHeartBeats++
 						node.Status = NodePending
-						r.logger.Infoln("node (ID: " + string(node.ID) + ") has missed a heartbeat")
-					case NodePending:
-						node.Status = NodeDead
-					case NodeDead:
-						nodesToRemove = append(nodesToRemove, node.ID)
+						r.logger.Infoln("node (ID: " + string(node.ID) + ") is pending, missed heartbeats: " + strconv.Itoa(node.MissedHeartBeats))
+					} else {
+						r.logger.Warnln("node (ID: " + string(node.ID) + ") is dead")
+						r.nodeDead <- nodeID
+						delete(r.workerNodes, nodeID)
 					}
 				}
 			}
-			for _, ID := range nodesToRemove {
-				r.logger.Warnln("node (ID: " + string(ID) + ") has been removed")
-				delete(r.workerNodes, ID)
-			}
-			r.workerNodeMutex.Unlock()
-
-			r.deadNodeMutex.Lock()
-			r.deadNodes = append(r.deadNodes, nodesToRemove...)
-			r.deadNodeMutex.Unlock()
-
-			time.Sleep(3 * time.Second)
 		}
 	}
-}
-
-func (r *Registry) IsNodeDead(ID NodeID) bool {
-	r.deadNodeMutex.RLock()
-	defer r.deadNodeMutex.RUnlock()
-	return slices.Contains(r.deadNodes, ID)
 }

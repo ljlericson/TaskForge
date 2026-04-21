@@ -15,7 +15,7 @@ func Server(ctx context.Context, addr string, logger *logging.Logger, handler *H
 
 	r := chi.NewRouter()
 
-	r.Use(logger.RequestLogger())
+	// r.Use(logger.RequestLogger())
 
 	r.Use(cors.Handler(cors.Options{
 

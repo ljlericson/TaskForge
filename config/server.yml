@@ -8,4 +8,4 @@ logging:
 
 workers:
   - id: "worker1"
-    pubkey: "../keys/worker1_pubkey.pem"
+    pubkey: "../keys/worker1_pub.pem"

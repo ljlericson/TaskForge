@@ -1,7 +1,9 @@
 #include <openssl/bio.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
+#include <openssl/rsa.h>
 
+#include <chrono>
 #include <iomanip>
 #include <openssl/buffer.h>
 #include <sstream>
@@ -70,8 +72,7 @@ namespace Auth {
         ss << std::hex << std::setfill('0');
 
         for (unsigned int i = 0; i < hashLen; ++i) {
-            ss << std::setw(2)
-               << static_cast<int>(static_cast<unsigned char>(hash[i]));
+            ss << std::setw(2) << static_cast<int>(hash[i]);
         }
 
         return ss.str();
@@ -82,6 +83,7 @@ namespace Auth {
                             const std::string& method, const std::string& path,
                             const std::string& bodyHashHex,
                             const std::string& privateKeyPem) {
+
         std::string message = workerID + ":" + timestamp + ":" + method + ":" +
                               path + ":" + bodyHashHex;
 
@@ -96,7 +98,7 @@ namespace Auth {
         BIO_free(bio);
 
         if (!pkey)
-            throw std::runtime_error("Failed to parse PKCS#8 private key");
+            throw std::runtime_error("Failed to parse private key");
 
         EVP_MD_CTX* ctx = EVP_MD_CTX_new();
         if (!ctx) {
@@ -104,11 +106,18 @@ namespace Auth {
             throw std::runtime_error("EVP_MD_CTX_new failed");
         }
 
-        if (EVP_DigestSignInit(ctx, nullptr, EVP_sha256(), nullptr, pkey) <=
-            0) {
+        EVP_PKEY_CTX* pctx = nullptr;
+
+        if (EVP_DigestSignInit(ctx, &pctx, EVP_sha256(), nullptr, pkey) <= 0) {
             EVP_MD_CTX_free(ctx);
             EVP_PKEY_free(pkey);
             throw std::runtime_error("EVP_DigestSignInit failed");
+        }
+
+        if (EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PADDING) <= 0) {
+            EVP_MD_CTX_free(ctx);
+            EVP_PKEY_free(pkey);
+            throw std::runtime_error("Failed to set RSA padding");
         }
 
         if (EVP_DigestSignUpdate(ctx, message.data(), message.size()) <= 0) {

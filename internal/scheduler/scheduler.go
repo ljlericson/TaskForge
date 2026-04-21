@@ -10,7 +10,12 @@ import (
 	"github.com/ljlericson/TaskForge/internal/registry"
 )
 
-type Queue interface {
+type jobRequest struct {
+	nodeID registry.NodeID
+	resp   chan job.JobID
+}
+
+type JobQueuer interface {
 	GetNextJob() (job.JobID, error)
 	AddJobToQueue(jr *job.JobRequest) error
 	ReturnJobToQueue(job.JobID) error
@@ -20,9 +25,6 @@ type Queue interface {
 type Registry interface {
 	GetIdleNodesChan() <-chan registry.NodeID
 	GetDeadNodesChan() <-chan registry.NodeID
-
-	IsNodeDead(registry.NodeID) bool
-	GetFreeNode() (registry.NodeID, error)
 }
 
 type Logger interface {
@@ -39,36 +41,44 @@ type task struct {
 }
 
 type Scheduler struct {
-	jobSubmited  <-chan job.JobRequest
+	jobSubmitted <-chan job.JobRequest
 	nodeIdle     <-chan registry.NodeID
 	nodeDead     <-chan registry.NodeID
 	activeJobs   chan job.JobID
 	errorChan    chan error
 	jobCompleted chan job.JobID
 	jobFailed    chan job.JobID
+	jobRequests  chan jobRequest
 
-	queue           Queue
+	queue           JobQueuer
 	registry        Registry
 	logger          Logger
 	activeTasks     map[job.JobID]*task // Tasks use same ID as jobs to avoid complication
 	nodeIDToTask    map[registry.NodeID]job.JobID
 	attemptsPerTask map[job.JobID]int
 	idleNodes       []registry.NodeID
+	activeNodes     map[registry.NodeID]struct{}
 }
 
-func NewScheduler(q Queue, r Registry, l Logger, jobSumitted <-chan job.JobRequest) *Scheduler {
+func NewScheduler(q JobQueuer, r Registry, l Logger, jobSumitted <-chan job.JobRequest) *Scheduler {
 	return &Scheduler{
-		jobSubmited: jobSumitted,
-		nodeIdle:    r.GetIdleNodesChan(),
-		nodeDead:    r.GetIdleNodesChan(),
-		activeJobs:  make(chan job.JobID),
+		jobSubmitted: jobSumitted,
+		nodeIdle:     r.GetIdleNodesChan(),
+		nodeDead:     r.GetDeadNodesChan(),
+		activeJobs:   make(chan job.JobID, 100),
+		errorChan:    make(chan error, 100),
+		jobCompleted: make(chan job.JobID, 100),
+		jobFailed:    make(chan job.JobID, 100),
+		jobRequests:  make(chan jobRequest),
 
-		queue:        q,
-		registry:     r,
-		logger:       l,
-		activeTasks:  make(map[job.JobID]*task),
-		nodeIDToTask: make(map[registry.NodeID]job.JobID),
-		idleNodes:    make([]registry.NodeID, 0),
+		queue:           q,
+		registry:        r,
+		logger:          l,
+		activeTasks:     make(map[job.JobID]*task),
+		nodeIDToTask:    make(map[registry.NodeID]job.JobID),
+		idleNodes:       make([]registry.NodeID, 0),
+		activeNodes:     make(map[registry.NodeID]struct{}),
+		attemptsPerTask: map[job.JobID]int{},
 	}
 }
 
@@ -99,23 +109,71 @@ func (s *Scheduler) Start(ctx context.Context) {
 		case nodeID := <-s.nodeDead:
 			jobID, ok := s.nodeIDToTask[nodeID]
 			if !ok {
-				// dead node was idle
+				s.logger.Successln("dead node had no job asigned to it!")
 				continue
 			}
 			s.failJob(jobID)
 
-		case jr := <-s.jobSubmited:
-			if err := s.queue.AddJobToQueue(&jr); err != nil {
-				s.logger.Errorln("error adding job to queue " + err.Error())
-				s.errorChan <- err
+		case jr := <-s.jobSubmitted:
+			s.errorChan <- s.queue.AddJobToQueue(&jr)
+
+		case nodeID := <-s.nodeIdle:
+			if _, ok := s.activeNodes[nodeID]; ok {
+				previousJobID, ok := s.nodeIDToTask[nodeID]
+				if !ok {
+					s.logger.Errorln("active node gone idle did not have job asigned to it")
+				} else {
+					s.completeJob(previousJobID)
+				}
+			}
+			s.logger.Infoln("node " + string(nodeID) + " is idle")
+			s.idleNodes = append(s.idleNodes, nodeID)
+			s.assignJobs()
+		case req := <-s.jobRequests:
+			// treat as idle node + assignment in one step
+
+			if jobID, ok := s.nodeIDToTask[req.nodeID]; ok {
+				// node was already running something → complete it
+				s.completeJob(jobID)
+			}
+
+			jobID, err := s.queue.GetNextJob()
+			if err != nil {
+				req.resp <- "" // no job available
 				continue
 			}
 
-		case nodeID := <-s.nodeIdle:
-			s.idleNodes = append(s.idleNodes, nodeID)
-			s.assignJobs()
+			s.attemptsPerTask[jobID]++
+			s.activeTasks[jobID] = &task{
+				JobID:   jobID,
+				NodeID:  req.nodeID,
+				Attempt: s.attemptsPerTask[jobID],
+			}
+
+			s.nodeIDToTask[req.nodeID] = jobID
+			s.activeNodes[req.nodeID] = struct{}{}
+
+			s.logger.Infoln(fmt.Sprintf("job (ID: %s) assigned to node (ID: %s), job attempt %d", string(jobID), string(req.nodeID), s.attemptsPerTask[jobID]))
+
+			req.resp <- jobID
 		}
 	}
+}
+
+func (s *Scheduler) RequestJob(nodeID registry.NodeID) (job.JobID, error) {
+	resp := make(chan job.JobID)
+
+	s.jobRequests <- jobRequest{
+		nodeID: nodeID,
+		resp:   resp,
+	}
+
+	jobID := <-resp
+	if jobID == "" {
+		return "", errors.New("no job available")
+	}
+
+	return jobID, nil
 }
 
 func (s *Scheduler) assignJobs() {
@@ -126,11 +184,16 @@ func (s *Scheduler) assignJobs() {
 			return
 		}
 
+		_, ok := s.attemptsPerTask[jobID]
+		if !ok {
+			s.attemptsPerTask[jobID] = 0
+		}
+		s.attemptsPerTask[jobID]++
+
 		nodeID := s.idleNodes[0]
 		s.idleNodes = s.idleNodes[1:]
 
 		s.activeJobs <- jobID
-		s.logger.Infoln(fmt.Sprintf("job (ID: %s) assigned to node (ID: %s)", string(jobID), string(nodeID)))
 
 		s.activeTasks[jobID] = &task{
 			JobID:   jobID,
@@ -138,6 +201,7 @@ func (s *Scheduler) assignJobs() {
 			Attempt: s.attemptsPerTask[jobID],
 		}
 		s.nodeIDToTask[nodeID] = jobID
+		s.activeNodes[nodeID] = struct{}{}
 	}
 }
 
@@ -150,6 +214,12 @@ func (s *Scheduler) completeJob(jobID job.JobID) error {
 	s.logger.Successln(fmt.Sprintf("job (ID: %s) SUCCEEDED, job removed from queue", string(jobID)))
 	delete(s.activeTasks, jobID)
 	delete(s.nodeIDToTask, task.NodeID)
+	if _, ok := s.activeNodes[task.NodeID]; !ok {
+		s.logger.Errorln("no node found for task")
+		return nil
+	}
+
+	delete(s.activeNodes, task.NodeID)
 	s.queue.RemoveJobFromQueue(jobID)
 	return nil
 }
@@ -163,16 +233,13 @@ func (s *Scheduler) failJob(jobID job.JobID) error {
 	s.logger.Warnln(fmt.Sprintf("job (ID: %s) FAILED, job returning to queue", string(jobID)))
 	s.queue.ReturnJobToQueue(jobID)
 
+	if _, ok := s.activeNodes[task.NodeID]; !ok {
+		s.logger.Errorln("no node found for task")
+		return nil
+	}
+	delete(s.activeNodes, task.NodeID)
 	delete(s.activeTasks, jobID)
 	delete(s.nodeIDToTask, task.NodeID)
+
 	return nil
-}
-
-func (s *Scheduler) jobIDForNode(NodeID registry.NodeID) (job.JobID, error) {
-	jobID, ok := s.nodeIDToTask[NodeID]
-
-	if !ok {
-		return "", errors.New("node has no job asigned to it")
-	}
-	return jobID, nil
 }

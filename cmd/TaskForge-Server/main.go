@@ -14,6 +14,7 @@ import (
 	"github.com/ljlericson/TaskForge/internal/api"
 	"github.com/ljlericson/TaskForge/internal/heap"
 	"github.com/ljlericson/TaskForge/internal/input"
+	"github.com/ljlericson/TaskForge/internal/job"
 	"github.com/ljlericson/TaskForge/internal/logging"
 	"github.com/ljlericson/TaskForge/internal/queue"
 	"github.com/ljlericson/TaskForge/internal/registry"
@@ -50,47 +51,38 @@ func main() {
 	config, err := loadConfig("config/server.yml")
 	if err != nil {
 		log.Fatalln(err)
-		return
 	}
 	addr := net.JoinHostPort(config.Server.Host, strconv.Itoa(config.Server.Port))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	var wg sync.WaitGroup
-	wg.Add(4)
-
 	logger, err := logging.NewLogger(config.Logging.Path)
 	if err != nil {
-		panic(err)
+		log.Fatalln(err)
 	}
 
-	var (
-		registry  *registry.Registry   = registry.NewRegistry(logger)
-		heap      *heap.Heap           = heap.NewHeap()
-		queue     *queue.Queue         = queue.NewQueue(heap, logger)
-		scheduler *scheduler.Scheduler = scheduler.NewScheduler(queue, registry, logger)
-		handler   *api.Handler         = api.NewHandler(scheduler, queue, registry, logger)
-	)
+	// shared channels
+	jobSubmited := make(chan job.JobRequest)
+	nodeHeartBeat := make(chan registry.NodeID)
+	nodeIdle := make(chan registry.NodeID)
 
-	go func() {
-		defer wg.Done()
-		api.Server(ctx, addr, logger, handler)
-	}()
+	reg := registry.NewRegistry(logger, nodeHeartBeat)
+	reg.InitRegistry(config.Workers)
+	h := heap.NewHeap()
+	q := queue.NewQueue(h, logger)
+	sch := scheduler.NewScheduler(q, reg, logger, jobSubmited)
+	hand := api.NewHandler(sch, q, reg, logger, jobSubmited, nodeIdle, nodeHeartBeat)
 
-	go func() {
-		defer wg.Done()
-		scheduler.Start(ctx)
-	}()
-
-	go func() {
-		defer wg.Done()
-		registry.CheckHeartbeats(ctx)
-	}()
-
-	go func() {
-		defer wg.Done()
-		input.Start(ctx, inputHandler)
-	}()
+	wg := sync.WaitGroup{}
+	wg.Go(func() {
+		if err := api.Server(ctx, addr, logger, hand); err != nil {
+			logger.Errorln(err.Error())
+			stop()
+		}
+	})
+	wg.Go(func() { sch.Start(ctx) })
+	wg.Go(func() { reg.Start(ctx) })
+	wg.Go(func() { input.Start(ctx, inputHandler) })
 
 	<-ctx.Done()
 	wg.Wait()

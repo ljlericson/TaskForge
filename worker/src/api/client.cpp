@@ -40,9 +40,14 @@ namespace Api {
     };
 
     void Client::RegisterWorker() {
-        if (!this->Request("/workers/register", "POST",
-                           registerRequest{.id = m_workerID})) {
+        auto res = this->Request("/workers/register", "POST",
+                                 registerRequest{.id = m_workerID});
+
+        if (!res) {
             m_cancelCtx->store(true);
+            return;
         }
+
+        Logger::Infoln(std::format("Registered: {}", res.body).c_str());
     }
 } // namespace Api
