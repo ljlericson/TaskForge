@@ -31,5 +31,4 @@ jobs:
 
     - name: Build worker
       run: |
-        cd worker
         sh build-worker.sh
