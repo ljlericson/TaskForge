@@ -5,9 +5,8 @@
     "mainClass": "com.example.WordCount"
   },
   "resources": {
-    "executors": 8,
-    "coresPerExecutor": 2,
-    "memoryPerExecutorMB": 4096
+    "executionCores": 2,
+    "executionMemory": 4096
   },
   "data": {
     "input": [

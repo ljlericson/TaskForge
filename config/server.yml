@@ -1,11 +1,11 @@
 server:
-  host: "0.0.0.0"
+  host: 0.0.0.0
   port: 3000
   timeout: 30
 
 logging:
-  path: "logs/server.log"
+  path: logs/server.log
 
 workers:
-  - id: "worker1"
-    pubkey: "../keys/worker1_pub.pem"
+  - id: worker1
+    pubkey: ../keys/worker1_pub.pem

@@ -44,10 +44,12 @@ namespace Api {
                                  registerRequest{.id = m_workerID});
 
         if (!res) {
+            Logger::Errln(
+                std::format("registration failed, server gave error: {}",
+                            res.body)
+                    .c_str());
             m_cancelCtx->store(true);
             return;
         }
-
-        Logger::Infoln(std::format("Registered: {}", res.body).c_str());
     }
 } // namespace Api

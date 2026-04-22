@@ -35,9 +35,8 @@ type JarSpec struct {
 }
 
 type ResourceSpec struct {
-	Executors           int `json:"executors"`
-	CoresPerExecutor    int `json:"coresPerExecutor"`
-	MemoryPerExecutorMB int `json:"memoryPerExecutorMB"`
+	ExecutionCores  int `json:"executionCores"`
+	ExecutionMemory int `json:"executionMemory"`
 }
 
 type DataSpec struct {

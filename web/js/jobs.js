@@ -17,14 +17,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const jarMainClass = document.getElementById("jarMainClass").value
         const jarArguments = document.getElementById("jarArguments").value
 
-        const executors = Number(document.getElementById("executors").value)
-        const coresPerExecutor = Number(document.getElementById("coresPerExecutor").value)
-        const memoryPerExecutorMB = Number(document.getElementById("memoryPerExecutorMB").value)
+        const executionCores = Number(document.getElementById("executionCores").value)
+        const executionMemory = Number(document.getElementById("executionMemory").value)
 
         const dataInput = document.getElementById("dataInput").value
         const dataOutput = document.getElementById("dataOutput").value
 
-        const logLevel = document.getElementById("logLevel").value
         const javaOpts = document.getElementById("javaOpts").value
 
         const serverIP = document.getElementById("serverIP").value
@@ -43,9 +41,8 @@ document.addEventListener("DOMContentLoaded", () => {
             },
 
             resources: {
-                executors: executors,
-                coresPerExecutor: coresPerExecutor,
-                memoryPerExecutorMB: memoryPerExecutorMB
+                executionCores: executionCores,
+                executionMemory: executionMemory
             },
 
             data: {
@@ -56,7 +53,6 @@ document.addEventListener("DOMContentLoaded", () => {
             arguments: jarArguments.split(" "),
 
             environment: {
-                LOG_LEVEL: logLevel,
                 JAVA_OPTS: javaOpts
             },
 

@@ -5,7 +5,7 @@ namespace Logger {
     void Logln(const std::string& s);
 
     void Infoln(const char* s);
-    void Logln(const std::string& s);
+    void Infoln(const std::string& s);
 
     void Warnln(const char* s);
     void Warnln(const std::string& s);

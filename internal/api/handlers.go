@@ -115,8 +115,8 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 				hex.EncodeToString(hash[:]),
 		)
 
-		if !h.registry.AuthenticateWorker(workerID, message, sigBytes) {
-			http.Error(w, "worker authentication failed", http.StatusUnauthorized)
+		if err := h.registry.AuthenticateWorker(workerID, message, sigBytes); err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
 

@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <title>My Website</title>
+  <title>TaskForge</title>
 
   <!-- CSS -->
   <link rel="stylesheet" href="css/styles.css" />
@@ -19,9 +19,9 @@
 <!-- Main content -->
 
 <main>
-  <!-- <div class="logo">
+  <div class="logo">
     <img src="assets/un.svg.png">
-  </div> -->
+  </div>
 
   <div class="jobFormTitle">
     <h2>Job Creator</h2>
@@ -58,14 +58,11 @@
 
       <fieldset>
         <legend>Resources</legend>
-        <label for="executors">Number of Executors</label>
-        <input id="executors" />
+        <label for="executionCores">Number of Execution Cores</label>
+        <input id="executionCores" />
         <br>
-        <label for="coresPerExecutor">Cores Per Executor</label>
-        <input id="coresPerExecutor" />
-        <br>
-        <label for="memoryPerExecutorMB">Memory Per Executor (Mb)</label>
-        <input id="memoryPerExecutorMB" />
+        <label for="executionMemory">Memory for Execution (Mb)</label>
+        <input id="executionMemory" />
       </fieldset>
 
       <fieldset>
@@ -79,9 +76,6 @@
 
       <fieldset>
         <legend>Environment</legend>
-        <label for="logLevel">Log Level</label>
-        <input id="logLevel" />
-        <br>
         <label for="javaOpts">Java Opts</label>
         <input id="javaOpts" />
       </fieldset>

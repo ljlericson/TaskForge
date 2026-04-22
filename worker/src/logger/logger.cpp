@@ -20,77 +20,55 @@ namespace Logger {
         auto now = std::chrono::system_clock::now();
 
         std::time_t now_t = std::chrono::system_clock::to_time_t(now);
-        std::cout << '['
-                  << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S")
-                  << "] " << s << '\n';
+        std::cout << '[' << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S") << "] " << s << '\n';
     }
 
     void Logln(const std::string& s) {
         auto now = std::chrono::system_clock::now();
 
         std::time_t now_t = std::chrono::system_clock::to_time_t(now);
-        std::cout << '['
-                  << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S")
-                  << "] " << s << '\n';
+        std::cout << '[' << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S") << "] " << s << '\n';
     }
 
     void Infoln(const char* s) {
         auto now = std::chrono::system_clock::now();
 
         std::time_t now_t = std::chrono::system_clock::to_time_t(now);
-        std::cout << CONSOLE_CYAN << "[INFO "
-                  << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S")
-                  << "] " << s << '\n'
-                  << CONSOLE_COLRESET;
+        std::cout << CONSOLE_CYAN << "[INFO " << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S") << "] " << s << '\n' << CONSOLE_COLRESET;
     }
 
     void Infoln(const std::string& s) {
         auto now = std::chrono::system_clock::now();
 
         std::time_t now_t = std::chrono::system_clock::to_time_t(now);
-        std::cout << CONSOLE_CYAN << "[INFO "
-                  << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S")
-                  << "] " << s << '\n'
-                  << CONSOLE_COLRESET;
+        std::cout << CONSOLE_CYAN << "[INFO " << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S") << "] " << s << '\n' << CONSOLE_COLRESET;
     }
 
     void Warnln(const char* s) {
         auto now = std::chrono::system_clock::now();
 
         std::time_t now_t = std::chrono::system_clock::to_time_t(now);
-        std::cout << CONSOLE_YELLOW << "[WARN "
-                  << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S")
-                  << "] " << s << '\n'
-                  << CONSOLE_COLRESET;
+        std::cout << CONSOLE_YELLOW << "[WARN " << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S") << "] " << s << '\n' << CONSOLE_COLRESET;
     }
 
     void Warnln(const std::string& s) {
         auto now = std::chrono::system_clock::now();
 
         std::time_t now_t = std::chrono::system_clock::to_time_t(now);
-        std::cout << CONSOLE_YELLOW << "[WARN "
-                  << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S")
-                  << "] " << s << '\n'
-                  << CONSOLE_COLRESET;
+        std::cout << CONSOLE_YELLOW << "[WARN " << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S") << "] " << s << '\n' << CONSOLE_COLRESET;
     }
 
     void Errln(const char* s) {
         auto now = std::chrono::system_clock::now();
 
         std::time_t now_t = std::chrono::system_clock::to_time_t(now);
-        std::cout << CONSOLE_RED << "[ERR  "
-                  << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S")
-                  << "] " << s << '\n'
-                  << CONSOLE_COLRESET;
+        std::cout << CONSOLE_RED << "[ERR  " << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S") << "] " << s << '\n' << CONSOLE_COLRESET;
     }
 
     void Errln(const std::string& s) {
         auto now = std::chrono::system_clock::now();
 
         std::time_t now_t = std::chrono::system_clock::to_time_t(now);
-        std::cout << CONSOLE_RED << "[ERR  "
-                  << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S")
-                  << "] " << s << '\n'
-                  << CONSOLE_COLRESET;
+        std::cout << CONSOLE_RED << "[ERR  " << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S") << "] " << s << '\n' << CONSOLE_COLRESET;
     }
 } // namespace Logger

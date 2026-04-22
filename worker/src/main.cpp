@@ -28,26 +28,14 @@ int main() {
 
     // shared reasources
     std::string workerID = j["id"].get<std::string>();
-    Logger::Infoln(
-        std::format("Registering with worker ID \"{}\"", workerID).c_str());
+    Logger::Infoln(std::format("Worker started with ID \"{}\"", workerID).c_str());
     std::latch latch(2);
-    std::shared_ptr<std::atomic<uint8_t>> jobProgress =
-        std::make_shared<std::atomic<uint8_t>>(0);
-    std::shared_ptr<std::atomic<bool>> jobActive =
-        std::make_shared<std::atomic<bool>>(false);
-    std::shared_ptr<std::atomic<bool>> cancelCtx =
-        std::make_shared<std::atomic<bool>>(false);
+    std::shared_ptr<std::atomic<bool>> cancelCtx = std::make_shared<std::atomic<bool>>(false);
 
-    std::unique_ptr<Api::Client> client = std::make_unique<Api::Client>(
-        cancelCtx, j["serverAddress"].get<std::string>(), workerID,
-        j["privateKeyPath"].get<std::string>());
-
-    std::unique_ptr<Jobs::Heartbeat> heartbeat =
-        std::make_unique<Jobs::Heartbeat>(cancelCtx, jobProgress, jobActive,
-                                          *client, workerID, latch);
-
-    std::unique_ptr<Jobs::Executor> executor = std::make_unique<Jobs::Executor>(
-        cancelCtx, jobProgress, jobActive, *client, latch);
+    // main processess
+    std::unique_ptr<Api::Client> client = std::make_unique<Api::Client>(cancelCtx, j["serverAddress"].get<std::string>(), workerID, j["privateKeyPath"].get<std::string>());
+    std::unique_ptr<Jobs::Heartbeat> heartbeat = std::make_unique<Jobs::Heartbeat>(cancelCtx, *client, workerID, latch);
+    std::unique_ptr<Jobs::Executor> executor = std::make_unique<Jobs::Executor>(cancelCtx, *client, latch);
 
     client->RegisterWorker();
     heartbeat->Run();

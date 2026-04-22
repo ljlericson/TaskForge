@@ -6,7 +6,8 @@ AccessModifierOffset: -4
 IndentAccessModifiers: false
 
 NamespaceIndentation: All
+IndentCaseLabels: true
 BreakBeforeBraces: Attach
 PointerAlignment: Left
-ColumnLimit: 80
+ColumnLimit: 200
 ...
