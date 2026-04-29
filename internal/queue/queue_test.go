@@ -9,7 +9,7 @@ import (
 )
 
 func setupQueue() *Queue {
-	logger, _ := logging.NewLogger("logs/test.log")
+	logger, _ := logging.NewLogger("logs/test.log", nil)
 	q := NewQueue(heap.NewHeap(), logger)
 
 	jr := job.JobRequest{Priority: 1}

@@ -17,10 +17,15 @@ type Heap interface {
 }
 
 type Logger interface {
-	Infoln(msg string)
-	Warnln(msg string)
-	Successln(msg string)
-	Errorln(msg string)
+	Infoln(v ...any)
+	Warnln(v ...any)
+	Successln(v ...any)
+	Errorln(v ...any)
+}
+
+type JobInfo struct {
+	JobName  string `json:"jobName"`
+	Priority int    `json:"priority"`
 }
 
 type Queue struct {

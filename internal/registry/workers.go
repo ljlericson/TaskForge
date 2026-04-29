@@ -26,8 +26,6 @@ type WorkerConfig struct {
 	PubKey string `yaml:"pubkey"`
 }
 
-// heartbeat every 5s
-// timeout after 15s
 type Node struct {
 	ID               NodeID
 	MissedHeartBeats int
@@ -36,10 +34,10 @@ type Node struct {
 }
 
 type Logger interface {
-	Infoln(msg string)
-	Warnln(msg string)
-	Successln(msg string)
-	Errorln(msg string)
+	Infoln(v ...any)
+	Warnln(v ...any)
+	Successln(v ...any)
+	Errorln(v ...any)
 }
 
 type Registry struct {
@@ -54,19 +52,19 @@ type Registry struct {
 	pubKeyMutex      sync.RWMutex
 	serverPublicKeys map[string]*rsa.PublicKey
 
-	workerNodeMutex sync.RWMutex
-	workerNodes     map[NodeID]*Node
+	workerNodes map[NodeID]*Node
 }
 
-func NewRegistry(l Logger, nodeHeartBeat <-chan NodeID) *Registry {
+func NewRegistry(l Logger, nodeHeartBeat <-chan NodeID, nodeRegistered <-chan NodeID) *Registry {
 	return &Registry{
+		nodeRegistered:   nodeRegistered,
 		nodeHeartBeat:    nodeHeartBeat,
 		nodeIdle:         make(chan NodeID, 100),
 		nodeDead:         make(chan NodeID, 100),
+		errorChan:        make(chan error, 100),
 		logger:           l,
 		pubKeyMutex:      sync.RWMutex{},
 		serverPublicKeys: make(map[string]*rsa.PublicKey),
-		workerNodeMutex:  sync.RWMutex{},
 		workerNodes:      make(map[NodeID]*Node),
 	}
 }
@@ -77,6 +75,10 @@ func (r *Registry) GetIdleNodesChan() <-chan NodeID {
 
 func (r *Registry) GetDeadNodesChan() <-chan NodeID {
 	return r.nodeDead
+}
+
+func (r *Registry) GetErrorChan() <-chan error {
+	return r.errorChan
 }
 
 func parseRSAPublicKeyFromFile(path string) (*rsa.PublicKey, error) {
@@ -120,18 +122,6 @@ func (r *Registry) InitRegistry(wc []WorkerConfig) {
 	}
 }
 
-func (r *Registry) RegisterNode(node *Node) error {
-	r.workerNodeMutex.Lock()
-	defer r.workerNodeMutex.Unlock()
-
-	if _, ok := r.workerNodes[node.ID]; ok {
-		return errors.New("worker already registered")
-	}
-
-	r.workerNodes[node.ID] = node
-	return nil
-}
-
 func (r *Registry) Start(ctx context.Context) {
 	r.logger.Infoln("starting registry")
 	ticker := time.NewTicker(5 * time.Second)
@@ -139,13 +129,37 @@ func (r *Registry) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.logger.Infoln("shutting down worker heartbeat loop")
+			r.logger.Infoln("shutting down registry")
 			return
+		case nodeID := <-r.nodeRegistered:
+			r.logger.Infoln("registry recieved signal on node registered channel")
+
+			if node, ok := r.workerNodes[nodeID]; ok {
+				if node.Status == NodePending {
+					r.logger.Successln("pending node has restarted")
+
+					node.MissedHeartBeats = 0
+					node.LastHeartBeat = time.Now()
+					node.Status = NodeHealthy
+					r.logger.Infoln("worker (ID: " + node.ID + ") has registered successfully")
+
+					break
+				} else {
+					r.errorChan <- errors.New("worker already registered")
+					break
+				}
+			}
+			var node Node
+			node.ID = nodeID
+			node.LastHeartBeat = time.Now()
+			r.workerNodes[nodeID] = &node
+			r.logger.Infoln("worker (ID: " + node.ID + ") has registered successfully")
 		case nodeID := <-r.nodeHeartBeat:
 			node, ok := r.workerNodes[nodeID]
 			if !ok {
-				r.errorChan <- errors.New("node (ID: " + string(node.ID) + ") is not registered")
+				r.errorChan <- errors.New("node (ID: " + string(nodeID) + ") is not registered")
 			} else {
+				node.MissedHeartBeats = 0
 				node.LastHeartBeat = time.Now()
 				node.Status = NodeHealthy
 			}

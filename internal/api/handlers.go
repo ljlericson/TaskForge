@@ -18,6 +18,7 @@ import (
 	"github.com/ljlericson/TaskForge/internal/queue"
 	"github.com/ljlericson/TaskForge/internal/registry"
 	"github.com/ljlericson/TaskForge/internal/scheduler"
+	"github.com/ljlericson/TaskForge/internal/stats"
 )
 
 type ctxKey int
@@ -34,10 +35,14 @@ const (
 )
 
 type Handler struct {
-	jobSubmitted     chan job.JobRequest
-	nodeIdle         chan registry.NodeID
-	nodeHeartBeat    chan registry.NodeID
-	schedulerErrChan <-chan error
+	jobSubmitted      chan job.JobRequest
+	jobFailed         chan job.JobID
+	jobStatusRecieved chan stats.JobStatus
+	nodeIdle          chan registry.NodeID
+	nodeHeartBeat     chan registry.NodeID
+	nodeRegistered    chan registry.NodeID
+	schedulerErrChan  <-chan error
+	registryErrChan   <-chan error
 
 	scheduler *scheduler.Scheduler
 	queue     *queue.Queue
@@ -50,18 +55,25 @@ func NewHandler(s *scheduler.Scheduler,
 	r *registry.Registry,
 	l *logging.Logger,
 	jobSubmitted chan job.JobRequest,
+	jobFailed chan job.JobID,
+	nodeRegistered chan registry.NodeID,
 	nodeIdle chan registry.NodeID,
 	nodeHeartBeat chan registry.NodeID,
+	jobStatusRecieved chan stats.JobStatus,
 ) *Handler {
 	return &Handler{
-		jobSubmitted:     jobSubmitted,
-		nodeIdle:         nodeIdle,
-		nodeHeartBeat:    nodeHeartBeat,
-		schedulerErrChan: s.GetErrorsChan(),
-		scheduler:        s,
-		queue:            q,
-		registry:         r,
-		logger:           l,
+		jobSubmitted:      jobSubmitted,
+		jobFailed:         jobFailed,
+		jobStatusRecieved: jobStatusRecieved,
+		nodeRegistered:    nodeRegistered,
+		nodeIdle:          nodeIdle,
+		nodeHeartBeat:     nodeHeartBeat,
+		schedulerErrChan:  s.GetErrorsChan(),
+		registryErrChan:   r.GetErrorChan(),
+		scheduler:         s,
+		queue:             q,
+		registry:          r,
+		logger:            l,
 	}
 }
 
@@ -136,6 +148,8 @@ func workerIDFromContext(ctx context.Context) string {
 func (h *Handler) NextJobHandler(w http.ResponseWriter, r *http.Request) {
 	workerID := workerIDFromContext(r.Context())
 
+	h.nodeIdle <- registry.NodeID(workerID)
+
 	jobID, err := h.scheduler.RequestJob(registry.NodeID(workerID))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNoContent)
@@ -161,34 +175,85 @@ func (h *Handler) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&jr); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
+	h.logger.Infoln("handler sent signal on job submit channel")
 	h.jobSubmitted <- jr
-	if err := <-h.schedulerErrChan; err != nil {
-		h.logger.Errorln(err.Error())
+
+	select {
+	case err := <-h.schedulerErrChan:
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	default:
 	}
 
 	h.logger.Infoln("new job submitted (ID: " + jr.JobName + ")")
 }
 
-func (h *Handler) RegisterWorkerHandler(w http.ResponseWriter, r *http.Request) {
-	var newNode registry.Node
+func (h *Handler) JobStatusHandler(w http.ResponseWriter, r *http.Request) {
+	var js stats.JobStatus
 
-	if err := json.NewDecoder(r.Body).Decode(&newNode); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-	}
-
-	newNode.Status = registry.NodeHealthy
-
-	if err := h.registry.RegisterNode(&newNode); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&js); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	h.logger.Infoln("worker (ID: " + string(newNode.ID) + ") has registered successfully")
+
+	h.jobStatusRecieved <- js
+}
+
+func (h *Handler) JobFailHandler(w http.ResponseWriter, r *http.Request) {
+	var j struct {
+		JobID string `json:"jobID"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&j); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	h.logger.Infoln("handler sent signal on job fail channel")
+	h.jobFailed <- job.JobID(j.JobID)
+
+	select {
+	case err := <-h.schedulerErrChan:
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			h.logger.Errorln(err.Error())
+			return
+		}
+	default:
+	}
+}
+
+func (h *Handler) RegisterWorkerHandler(w http.ResponseWriter, r *http.Request) {
+	workerID := workerIDFromContext(r.Context())
+
+	h.logger.Infoln("handler sent signal on node registered channel")
+	h.nodeRegistered <- registry.NodeID(workerID)
+	select {
+	case err := <-h.registryErrChan:
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	default:
+	}
 }
 
 func (h *Handler) WorkerHeartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	workerID := workerIDFromContext(r.Context())
 
 	h.nodeHeartBeat <- registry.NodeID(workerID)
+
+	select {
+	case err := <-h.registryErrChan:
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	default:
+	}
 }

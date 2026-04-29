@@ -17,30 +17,23 @@ namespace Api {
         std::string body;
         CURLcode curlCode = CURLE_OK;
 
-        explicit operator bool() const {
-            return curlCode == CURLE_OK && statusCode >= 200 &&
-                   statusCode < 300;
-        }
+        explicit operator bool() const { return curlCode == CURLE_OK && statusCode >= 200 && statusCode < 300; }
     };
 
     class Client {
     public:
-        Client(std::shared_ptr<std::atomic<bool>>& cancelCtx,
-               std::string_view address, const std::string& workerID,
-               std::string secretFPath);
+        Client(std::shared_ptr<std::atomic<bool>>& cancelCtx, std::string_view address, const std::string& workerID, std::string secretFPath);
         ~Client();
 
-        template <typename T>
-        Response Request(const std::string& route, const std::string& method,
-                         const T& jsonData) {
-            std::lock_guard<std::mutex> lock(m_requestMutex);
+        template <typename T> Response Request(const std::string& route, const std::string& method, const T& jsonData) {
+            std::scoped_lock lock(m_requestMutex);
 
             Response resp;
-
             std::string url = std::string(m_address) + route;
             std::string ts = Auth::GenerateTimestamp();
 
             std::string body;
+
             if (method != "GET") {
                 nlohmann::json j = jsonData;
                 body = j.dump();
@@ -48,21 +41,20 @@ namespace Api {
 
             std::string bodyHashHex = Auth::Sha256Hex(body);
 
-            std::string signature = Auth::SignRequest(
-                m_workerID, ts, method, route, bodyHashHex, m_secret);
+            std::string signature = Auth::SignRequest(m_workerID, ts, method, route, bodyHashHex, m_secret);
+
+            std::string h_worker = "X-Worker-ID: " + m_workerID;
+            std::string h_time = "X-Timestamp: " + ts;
+            std::string h_sig = "X-Signature: " + signature;
 
             struct curl_slist* headers = nullptr;
 
-            headers = curl_slist_append(headers,
-                                        ("X-Worker-ID: " + m_workerID).c_str());
-            headers =
-                curl_slist_append(headers, ("X-Timestamp: " + ts).c_str());
-            headers = curl_slist_append(headers,
-                                        ("X-Signature: " + signature).c_str());
+            headers = curl_slist_append(headers, h_worker.c_str());
+            headers = curl_slist_append(headers, h_time.c_str());
+            headers = curl_slist_append(headers, h_sig.c_str());
 
             if (method != "GET") {
-                headers = curl_slist_append(headers,
-                                            "Content-Type: application/json");
+                headers = curl_slist_append(headers, "Content-Type: application/json");
             }
 
             headers = curl_slist_append(headers, "Expect:");
@@ -74,10 +66,11 @@ namespace Api {
             curl_easy_setopt(m_curl, CURLOPT_URL, url.c_str());
             curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, headers);
 
+            curl_easy_setopt(m_curl, CURLOPT_TIMEOUT, 10L);
+            curl_easy_setopt(m_curl, CURLOPT_CONNECTTIMEOUT, 5L);
+
             curl_easy_setopt(
-                m_curl, CURLOPT_WRITEFUNCTION,
-                +[](char* ptr, size_t size, size_t nmemb,
-                    void* userdata) -> size_t {
+                m_curl, CURLOPT_WRITEFUNCTION, +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
                     auto* str = static_cast<std::string*>(userdata);
                     str->append(ptr, size * nmemb);
                     return size * nmemb;
@@ -90,24 +83,25 @@ namespace Api {
             } else {
                 curl_easy_setopt(m_curl, CURLOPT_CUSTOMREQUEST, method.c_str());
                 if (!body.empty()) {
-                    curl_easy_setopt(m_curl, CURLOPT_COPYPOSTFIELDS,
-                                     body.c_str());
+                    curl_easy_setopt(m_curl, CURLOPT_COPYPOSTFIELDS, body.c_str());
                 }
             }
 
             resp.curlCode = curl_easy_perform(m_curl);
 
-            curl_easy_getinfo(m_curl, CURLINFO_RESPONSE_CODE, &resp.statusCode);
+            long httpCode = 0;
+            curl_easy_getinfo(m_curl, CURLINFO_RESPONSE_CODE, &httpCode);
+            resp.statusCode = static_cast<int>(httpCode);
 
             curl_slist_free_all(headers);
 
             resp.body = std::move(responseBody);
 
-            if (resp.curlCode != CURLE_OK) {
-                Logger::Errln(std::format("request to {} failed: {}", route,
-                                          curl_easy_strerror(resp.curlCode)));
-            }
+            if (resp.curlCode != CURLE_OK || resp.statusCode >= 400) {
+                Logger::Errln(std::format("request failed {} (http {}): {}", curl_easy_strerror(resp.curlCode), resp.statusCode, route));
 
+                resp.body.clear();
+            }
             return resp;
         }
 

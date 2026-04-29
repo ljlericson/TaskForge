@@ -13,12 +13,12 @@ import (
 
 	"github.com/ljlericson/TaskForge/internal/api"
 	"github.com/ljlericson/TaskForge/internal/heap"
-	"github.com/ljlericson/TaskForge/internal/input"
 	"github.com/ljlericson/TaskForge/internal/job"
 	"github.com/ljlericson/TaskForge/internal/logging"
 	"github.com/ljlericson/TaskForge/internal/queue"
 	"github.com/ljlericson/TaskForge/internal/registry"
 	"github.com/ljlericson/TaskForge/internal/scheduler"
+	"github.com/ljlericson/TaskForge/internal/stats"
 	"gopkg.in/yaml.v3"
 )
 
@@ -56,48 +56,49 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	logger, err := logging.NewLogger(config.Logging.Path)
+	logger, err := logging.NewLogger(config.Logging.Path, stop)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	// shared channels
-	jobSubmited := make(chan job.JobRequest)
-	nodeHeartBeat := make(chan registry.NodeID)
-	nodeIdle := make(chan registry.NodeID)
+	jobSubmited := make(chan job.JobRequest, 100)
+	jobFailed := make(chan job.JobID, 100)
+	nodeIdle := make(chan registry.NodeID, 100)
+	nodeHeartBeat := make(chan registry.NodeID, 100)
+	nodeRegistered := make(chan registry.NodeID, 100)
+	jobStatusRecieved := make(chan stats.JobStatus, 100)
 
-	reg := registry.NewRegistry(logger, nodeHeartBeat)
+	reg := registry.NewRegistry(logger, nodeHeartBeat, nodeRegistered)
 	reg.InitRegistry(config.Workers)
 	h := heap.NewHeap()
 	q := queue.NewQueue(h, logger)
-	sch := scheduler.NewScheduler(q, reg, logger, jobSubmited)
-	hand := api.NewHandler(sch, q, reg, logger, jobSubmited, nodeIdle, nodeHeartBeat)
+	sch := scheduler.NewScheduler(q, reg, logger, jobSubmited, jobFailed, nodeIdle)
+	hand := api.NewHandler(sch, q, reg, logger, jobSubmited, jobFailed, nodeRegistered, nodeIdle, nodeHeartBeat, jobStatusRecieved)
 
 	wg := sync.WaitGroup{}
 	wg.Go(func() {
 		if err := api.Server(ctx, addr, logger, hand); err != nil {
-			logger.Errorln(err.Error())
-			stop()
+			logger.Abortln(err.Error())
 		}
 	})
 	wg.Go(func() { sch.Start(ctx) })
 	wg.Go(func() { reg.Start(ctx) })
-	wg.Go(func() { input.Start(ctx, inputHandler) })
+	// wg.Go(func() { input.Start(ctx, stop, inputHandler) })
 
 	<-ctx.Done()
 	wg.Wait()
 }
 
-func inputHandler(input string) {
-	split := strings.Split(input, " ")
-	for _, line := range split {
+func inputHandler(cancel context.CancelFunc, input string) {
+	for line := range strings.SplitSeq(input, " ") {
 		args := strings.Fields(line)
 		if len(args) == 0 {
 			continue
 		}
 
 		switch args[0] {
-
+		case "stop":
+			cancel()
 		}
 	}
 }

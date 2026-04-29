@@ -33,13 +33,13 @@ int main() {
     std::shared_ptr<std::atomic<bool>> cancelCtx = std::make_shared<std::atomic<bool>>(false);
 
     // main processess
-    std::unique_ptr<Api::Client> client = std::make_unique<Api::Client>(cancelCtx, j["serverAddress"].get<std::string>(), workerID, j["privateKeyPath"].get<std::string>());
-    std::unique_ptr<Jobs::Heartbeat> heartbeat = std::make_unique<Jobs::Heartbeat>(cancelCtx, *client, workerID, latch);
-    std::unique_ptr<Jobs::Executor> executor = std::make_unique<Jobs::Executor>(cancelCtx, *client, latch);
+    Api::Client client(cancelCtx, j["serverAddress"].get<std::string>(), workerID, j["privateKeyPath"].get<std::string>());
+    Jobs::Heartbeat heartbeat(cancelCtx, client, workerID, latch);
+    Jobs::Executor executor(cancelCtx, client, latch);
 
-    client->RegisterWorker();
-    heartbeat->Run();
-    executor->Start();
+    client.RegisterWorker();
+    heartbeat.Start();
+    executor.Start();
 
     latch.wait();
 }

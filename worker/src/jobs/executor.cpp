@@ -21,12 +21,22 @@ struct null {
 };
 
 struct jobStatus {
+    std::string jobName;
     int progress = 0;
+    int phase = 0; // 0 for setup, 1 for execution, 2 for upload
     std::string status = "ACTIVE";
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(jobStatus, progress, status)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(jobStatus, jobName, progress, phase, status)
 };
 
 namespace Jobs {
+    static void sendStatus(Api::Client& client, const jobStatus& status) {
+        Api::Response res = client.Request("/jobs/status", "POST", status);
+
+        if (!res) {
+            Logger::Errln(std::format("status update failed (code {}): {}", res.statusCode, res.body));
+        }
+    }
+
     static int execProcess(const std::vector<std::string>& args, pid_t& outPid) {
         pid_t pid = fork();
 
@@ -83,18 +93,18 @@ namespace Jobs {
                 }
 
                 case State::JobActive: {
-                    sendStatus({m_progress.load(), "ACTIVE"});
+                    sendStatus(mr_client, {.jobName = m_jobSpec.jobName, .progress = m_progress.load(), .phase = m_phase.load(), .status = "ACTIVE"});
                     break;
                 }
 
                 case State::JobSuccess: {
-                    sendStatus({100, "SUCCESS"});
+                    sendStatus(mr_client, {.jobName = m_jobSpec.jobName, .progress = m_progress.load(), .phase = m_phase.load(), .status = "SUCCESS"});
                     m_state.store(State::NoJobActive);
                     break;
                 }
 
                 case State::JobFail: {
-                    sendStatus({m_progress.load(), "FAIL"});
+                    sendStatus(mr_client, {.jobName = m_jobSpec.jobName, .progress = m_progress.load(), .phase = m_phase.load(), .status = "FAIL"});
                     m_state.store(State::NoJobActive);
                     break;
                 }
@@ -139,12 +149,30 @@ namespace Jobs {
         m_execThreadLatch.count_down();
     }
 
-    void Executor::sendStatus(const jobStatus& status) {
-        Api::Response res = mr_client.Request("/jobs/status", "POST", status);
+    void Executor::downloadFile(const std::string& url, const std::string& outputPath) {
+        Logger::Infoln(std::format("downloading from signed url -> {}", outputPath));
 
-        if (!res) {
-            Logger::Errln(std::format("status update failed (code {}): {}", res.statusCode, res.body));
-        }
+        pid_t pid;
+        execProcess({"curl", "-L", "--fail", "-o", outputPath, url}, pid);
+
+        int status;
+        waitpid(pid, &status, 0);
+
+        if (status != 0)
+            throw std::runtime_error("download failed");
+    }
+
+    void Executor::uploadFile(const std::string& filePath, const std::string& signedUploadURL) {
+        Logger::Infoln(std::format("uploading result -> {}", filePath));
+
+        pid_t pid;
+        execProcess({"curl", "-L", "--fail", "-X", "PUT", "--upload-file", filePath, signedUploadURL}, pid);
+
+        int status;
+        waitpid(pid, &status, 0);
+
+        if (status != 0)
+            throw std::runtime_error("upload failed");
     }
 
     void Executor::runJob(const JobSpec& job) {
@@ -156,10 +184,11 @@ namespace Jobs {
 
         m_progress.store(5);
 
-        runAws({"aws", "s3", "cp", job.jar.url, dir + "/job.jar"});
+        downloadFile(job.jar.url, dir + "/job.jar");
 
+        int i = 0;
         for (const auto& input : job.data.input) {
-            runAws({"aws", "s3", "cp", input, dir + "/input/", "--recursive"});
+            downloadFile(input, dir + "/input/input_" + std::to_string(i++));
         }
 
         m_progress.store(15);
@@ -168,6 +197,7 @@ namespace Jobs {
 
         auto dockerArgs = buildDockerArgs(job, dir);
 
+        m_phase.store(1);
         int result = runProcessStreaming(dockerArgs, job.timeoutSeconds);
 
         if (result == -1)
@@ -178,7 +208,10 @@ namespace Jobs {
 
         m_progress.store(90);
 
-        runAws({"aws", "s3", "cp", dir + "/output", job.data.output, "--recursive"});
+        m_phase.store(2);
+
+        runCommand({"zip", "-r", dir + "/output/result.zip", dir + "/output"});
+        uploadFile(dir + "/output/result.zip", job.data.output);
 
         m_progress.store(100);
 
@@ -221,7 +254,7 @@ namespace Jobs {
                 std::string line(buffer);
 
                 parseProgress(line);
-                Logger::Infoln(line);
+                Logger::Infoln(std::format("jar pritned \"{}\"", line));
             }
 
             pid_t result = waitpid(pid, &status, WNOHANG);
@@ -235,7 +268,7 @@ namespace Jobs {
                 return -2;
             }
 
-            if (elapsed++ >= timeoutSec) {
+            if (elapsed++ >= timeoutSec * 10) {
                 kill(pid, SIGKILL);
                 waitpid(pid, &status, 0);
                 fclose(stream);
@@ -272,17 +305,14 @@ namespace Jobs {
         std::string javaOpts = job.environment.count("JAVA_OPTS") ? job.environment.at("JAVA_OPTS") : "";
 
         f << "JAVA_OPTS=\"" << javaOpts << "\"\n";
-
         f << "stdbuf -oL java $JAVA_OPTS -cp job.jar " << job.jar.mainClass;
 
         for (const auto& arg : job.arguments)
             f << " " << arg;
 
         f << "\n";
-
         f.close();
-
-        runAws({"chmod", "+x", dir + "/run.sh"});
+        runCommand({"chmod", "+x", dir + "/run.sh"});
     }
 
     std::vector<std::string> Executor::buildDockerArgs(const JobSpec& job, const std::string& dir) {
@@ -316,7 +346,7 @@ namespace Jobs {
         return args;
     }
 
-    void Executor::runAws(const std::vector<std::string>& args) {
+    void Executor::runCommand(const std::vector<std::string>& args) {
         pid_t pid;
         execProcess(args, pid);
 

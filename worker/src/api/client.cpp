@@ -8,17 +8,14 @@
 #define PANIC() exit(-1)
 
 namespace Api {
-    Client::Client(std::shared_ptr<std::atomic<bool>>& cancelCtx,
-                   std::string_view address, const std::string& workerID,
-                   std::string secretFPath)
+    Client::Client(std::shared_ptr<std::atomic<bool>>& cancelCtx, std::string_view address, const std::string& workerID, std::string secretFPath)
         : m_cancelCtx(cancelCtx), m_workerID(workerID), m_address(address) {
         curl_global_init(CURL_GLOBAL_ALL);
         m_curl = curl_easy_init();
 
         std::ifstream file(secretFPath);
         if (!file.is_open()) {
-            Logger::Errln("private key file could not be opened, filepath: " +
-                          secretFPath);
+            Logger::Errln("private key file could not be opened, filepath: " + secretFPath);
             PANIC();
         }
 
@@ -40,16 +37,12 @@ namespace Api {
     };
 
     void Client::RegisterWorker() {
-        auto res = this->Request("/workers/register", "POST",
-                                 registerRequest{.id = m_workerID});
+        auto res = this->Request("/workers/register", "POST", registerRequest{.id = m_workerID});
 
         if (!res) {
-            Logger::Errln(
-                std::format("registration failed, server gave error: {}",
-                            res.body)
-                    .c_str());
+            Logger::Errln(std::format("registration failed, server gave error: {}", res.body).c_str());
             m_cancelCtx->store(true);
-            return;
         }
+        Logger::Infoln("exit");
     }
 } // namespace Api

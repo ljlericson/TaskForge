@@ -30,6 +30,8 @@ func ConfigureRoutes(h *Handler, r *chi.Mux) {
 		r.Use(h.AuthMiddleware)
 
 		r.Get("/jobs/next", h.NextJobHandler)
+		r.Post("/jobs/status", h.JobStatusHandler)
+		r.Post("/jobs/fail", h.JobFailHandler)
 		r.Post("/workers/register", h.RegisterWorkerHandler)
 		r.Post("/workers/heartbeat", h.WorkerHeartbeatHandler)
 	})

@@ -7,22 +7,36 @@ import (
 	"time"
 )
 
-type Handler func(string)
+type Handler func(HandlerContext)
 
-func Start(ctx context.Context, handler Handler) {
+type Input struct {
+	cancel  context.CancelFunc
+	ctx     context.Context
+	handler Handler
+}
+
+type HandlerContext struct {
+	Cancel context.CancelFunc
+	Input  string
+}
+
+func (i *Input) Start() {
 
 	scanner := bufio.NewScanner(os.Stdin)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	for scanner.Scan() {
 		select {
-		case <-ctx.Done():
+		case <-i.ctx.Done():
 			return
 
 		case <-ticker.C:
 			text := scanner.Text()
 
-			if handler != nil {
-				go handler(text)
+			if i.handler != nil {
+				go i.handler(HandlerContext{
+					Cancel: i.cancel,
+					Input:  text,
+				})
 			}
 		}
 	}

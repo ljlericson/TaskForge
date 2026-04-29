@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/ljlericson/TaskForge/internal/job"
 	"github.com/ljlericson/TaskForge/internal/registry"
@@ -28,10 +29,10 @@ type Registry interface {
 }
 
 type Logger interface {
-	Infoln(msg string)
-	Warnln(msg string)
-	Successln(msg string)
-	Errorln(msg string)
+	Infoln(v ...any)
+	Warnln(v ...any)
+	Successln(v ...any)
+	Errorln(v ...any)
 }
 
 type task struct {
@@ -42,12 +43,11 @@ type task struct {
 
 type Scheduler struct {
 	jobSubmitted <-chan job.JobRequest
+	jobFailed    <-chan job.JobID
 	nodeIdle     <-chan registry.NodeID
 	nodeDead     <-chan registry.NodeID
 	activeJobs   chan job.JobID
 	errorChan    chan error
-	jobCompleted chan job.JobID
-	jobFailed    chan job.JobID
 	jobRequests  chan jobRequest
 
 	queue           JobQueuer
@@ -60,15 +60,14 @@ type Scheduler struct {
 	activeNodes     map[registry.NodeID]struct{}
 }
 
-func NewScheduler(q JobQueuer, r Registry, l Logger, jobSumitted <-chan job.JobRequest) *Scheduler {
+func NewScheduler(q JobQueuer, r Registry, l Logger, jobSumitted <-chan job.JobRequest, jobFailed <-chan job.JobID, nodeIdle <-chan registry.NodeID) *Scheduler {
 	return &Scheduler{
 		jobSubmitted: jobSumitted,
-		nodeIdle:     r.GetIdleNodesChan(),
+		jobFailed:    jobFailed,
+		nodeIdle:     nodeIdle,
 		nodeDead:     r.GetDeadNodesChan(),
 		activeJobs:   make(chan job.JobID, 100),
 		errorChan:    make(chan error, 100),
-		jobCompleted: make(chan job.JobID, 100),
-		jobFailed:    make(chan job.JobID, 100),
 		jobRequests:  make(chan jobRequest),
 
 		queue:           q,
@@ -90,10 +89,6 @@ func (s *Scheduler) GetErrorsChan() <-chan error {
 	return s.errorChan
 }
 
-func (s *Scheduler) GetJobCompletedChan() <-chan job.JobID {
-	return s.jobCompleted
-}
-
 func (s *Scheduler) GetJobFailedChan() <-chan job.JobID {
 	return s.jobFailed
 }
@@ -107,6 +102,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 			s.logger.Infoln("shutting down scheduler")
 			return
 		case nodeID := <-s.nodeDead:
+			s.logger.Infoln("scheduler recieved signal on node dead channel")
 			jobID, ok := s.nodeIDToTask[nodeID]
 			if !ok {
 				s.logger.Successln("dead node had no job asigned to it!")
@@ -115,7 +111,11 @@ func (s *Scheduler) Start(ctx context.Context) {
 			s.failJob(jobID)
 
 		case jr := <-s.jobSubmitted:
+			s.logger.Infoln("scheduler recieved signal on job submitted channel")
 			s.errorChan <- s.queue.AddJobToQueue(&jr)
+		case jobID := <-s.jobFailed:
+			s.logger.Infoln("scheduler recieved signal on job failed channel")
+			s.errorChan <- s.failJob(jobID)
 
 		case nodeID := <-s.nodeIdle:
 			if _, ok := s.activeNodes[nodeID]; ok {
@@ -126,14 +126,14 @@ func (s *Scheduler) Start(ctx context.Context) {
 					s.completeJob(previousJobID)
 				}
 			}
-			s.logger.Infoln("node " + string(nodeID) + " is idle")
-			s.idleNodes = append(s.idleNodes, nodeID)
+			if !slices.Contains(s.idleNodes, nodeID) {
+				s.logger.Infoln("scheduler recieved signal on node idle channel")
+				s.idleNodes = append(s.idleNodes, nodeID)
+			}
 			s.assignJobs()
 		case req := <-s.jobRequests:
-			// treat as idle node + assignment in one step
 
 			if jobID, ok := s.nodeIDToTask[req.nodeID]; ok {
-				// node was already running something → complete it
 				s.completeJob(jobID)
 			}
 

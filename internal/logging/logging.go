@@ -1,14 +1,17 @@
 package logging
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
 type MesCol string
+type BackgroundCol string
 
 const (
 	// reset
@@ -34,44 +37,25 @@ const (
 	Cyan    MesCol = "\033[36m"
 	White   MesCol = "\033[37m"
 
-	// bright foreground
-	BrightBlack   MesCol = "\033[90m"
-	BrightRed     MesCol = "\033[91m"
-	BrightGreen   MesCol = "\033[92m"
-	BrightYellow  MesCol = "\033[93m"
-	BrightBlue    MesCol = "\033[94m"
-	BrightMagenta MesCol = "\033[95m"
-	BrightCyan    MesCol = "\033[96m"
-	BrightWhite   MesCol = "\033[97m"
-
 	// background
-	BgBlack   MesCol = "\033[40m"
-	BgRed     MesCol = "\033[41m"
-	BgGreen   MesCol = "\033[42m"
-	BgYellow  MesCol = "\033[43m"
-	BgBlue    MesCol = "\033[44m"
-	BgMagenta MesCol = "\033[45m"
-	BgCyan    MesCol = "\033[46m"
-	BgWhite   MesCol = "\033[47m"
-
-	// bright background
-	BgBrightBlack   MesCol = "\033[100m"
-	BgBrightRed     MesCol = "\033[101m"
-	BgBrightGreen   MesCol = "\033[102m"
-	BgBrightYellow  MesCol = "\033[103m"
-	BgBrightBlue    MesCol = "\033[104m"
-	BgBrightMagenta MesCol = "\033[105m"
-	BgBrightCyan    MesCol = "\033[106m"
-	BgBrightWhite   MesCol = "\033[107m"
+	BgBlack   BackgroundCol = "\033[40m"
+	BgRed     BackgroundCol = "\033[41m"
+	BgGreen   BackgroundCol = "\033[42m"
+	BgYellow  BackgroundCol = "\033[43m"
+	BgBlue    BackgroundCol = "\033[44m"
+	BgMagenta BackgroundCol = "\033[45m"
+	BgCyan    BackgroundCol = "\033[46m"
+	BgWhite   BackgroundCol = "\033[47m"
 )
 
 type Logger struct {
 	fileLogger    *log.Logger
 	consoleLogger *log.Logger
 	mutex         sync.Mutex
+	cancel        context.CancelFunc
 }
 
-func NewLogger(path string) (*Logger, error) {
+func NewLogger(path string, cancel context.CancelFunc) (*Logger, error) {
 
 	logDir := filepath.Dir(path)
 	err := os.MkdirAll(logDir, os.ModePerm)
@@ -87,33 +71,57 @@ func NewLogger(path string) (*Logger, error) {
 	return &Logger{
 		fileLogger:    log.New(file, "", log.LstdFlags),
 		consoleLogger: log.New(os.Stdout, "", log.LstdFlags),
+		cancel:        cancel,
 	}, nil
 }
 
-func (l *Logger) log(col MesCol, level string, msg string) {
-
+func (l *Logger) log(col MesCol, prefixCol BackgroundCol, level string, v ...any) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	fmt.Print(col)
-	l.consoleLogger.Printf("[%s] %s", level, msg)
-	fmt.Print(ResetCol)
+	prefix := "[" + level + "]"
+	msg := fmt.Sprint(v...)
 
-	l.fileLogger.Printf("[%s] %s", level, msg)
+	var b strings.Builder
+
+	if prefixCol == "" {
+		prefixCol = BackgroundCol(string(col))
+	}
+	b.WriteString(string(Bold))
+	b.WriteString(string(prefixCol))
+	b.WriteString(prefix)
+	b.WriteString(string(ResetCol))
+	b.WriteRune(' ')
+	b.WriteString(string(col))
+	b.WriteString(msg)
+	b.WriteString(string(ResetCol))
+
+	l.consoleLogger.Println(b.String())
+	l.fileLogger.Println(append([]any{prefix}, v...)...)
 }
 
-func (l *Logger) Infoln(msg string) {
-	l.log(Cyan, "INFO", msg)
+func (l *Logger) Infoln(v ...any) {
+	l.log(Cyan, "", "INFO", v...)
 }
 
-func (l *Logger) Warnln(msg string) {
-	l.log(Yellow, "WARN", msg)
+func (l *Logger) Warnln(v ...any) {
+	l.log(Yellow, "", "WARN", v...)
 }
 
-func (l *Logger) Successln(msg string) {
-	l.log(Green, "SCCS", msg)
+func (l *Logger) Successln(v ...any) {
+	l.log(Green, BgGreen, "OK", v...)
 }
 
-func (l *Logger) Errorln(msg string) {
-	l.log(Red, "ERROR", msg)
+func (l *Logger) Errorln(v ...any) {
+	l.log(Red, BgRed, "ERROR", v...)
+}
+
+func (l *Logger) Abortln(v ...any) {
+	l.log(Red, BgMagenta, "ABORT", v...)
+	l.cancel()
+}
+
+func (l *Logger) Fatalln(v ...any) {
+	l.log(Red, BgMagenta, "FATAL", v...)
+	os.Exit(1)
 }
