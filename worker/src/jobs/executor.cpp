@@ -331,6 +331,8 @@ namespace Jobs {
                                          "/tmp:rw,size=64m",
                                          "-v",
                                          dir + ":/workspace",
+                                         "-v",
+                                         dir + "/output:/workspace/output:rw",
                                          "-w",
                                          "/workspace"};
 
@@ -354,6 +356,6 @@ namespace Jobs {
         waitpid(pid, &status, 0);
 
         if (status != 0)
-            throw std::runtime_error("aws failed");
+            throw std::runtime_error("command failed");
     }
 } // namespace Jobs

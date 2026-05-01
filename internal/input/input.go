@@ -5,39 +5,65 @@ import (
 	"context"
 	"os"
 	"time"
+
+	"github.com/ljlericson/TaskForge/internal/logging"
 )
 
 type Handler func(HandlerContext)
+type Health interface {
+	CheckHealth()
+}
 
 type Input struct {
-	cancel  context.CancelFunc
-	ctx     context.Context
-	handler Handler
+	cancel   context.CancelFunc
+	handlers []Handler
+	health   Health
+	logger   *logging.Logger
 }
 
 type HandlerContext struct {
-	Cancel context.CancelFunc
-	Input  string
+	Cancel        context.CancelFunc
+	Input         string
+	HealthChecker Health
+	Logger        *logging.Logger
 }
 
-func (i *Input) Start() {
+func NewInput(cancel context.CancelFunc, health Health, logger *logging.Logger) *Input {
+	return &Input{
+		cancel:   cancel,
+		handlers: make([]Handler, 0),
+		health:   health,
+		logger:   logger,
+	}
+}
+
+func (i *Input) AddHandler(handler Handler) {
+	if handler != nil {
+		i.handlers = append(i.handlers, handler)
+	}
+}
+
+func (i *Input) Start(ctx context.Context) {
 
 	scanner := bufio.NewScanner(os.Stdin)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	for scanner.Scan() {
 		select {
-		case <-i.ctx.Done():
+		case <-ctx.Done():
 			return
 
 		case <-ticker.C:
 			text := scanner.Text()
 
-			if i.handler != nil {
-				go i.handler(HandlerContext{
-					Cancel: i.cancel,
-					Input:  text,
+			for _, handler := range i.handlers {
+				go handler(HandlerContext{
+					Cancel:        i.cancel,
+					Input:         text,
+					Logger:        i.logger,
+					HealthChecker: i.health,
 				})
 			}
+
 		}
 	}
 }

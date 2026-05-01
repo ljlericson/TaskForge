@@ -51,7 +51,7 @@ func Server(ctx context.Context, addr string, logger *logging.Logger, handler *H
 		if err := srv.ListenAndServe(); err != nil &&
 			err != http.ErrServerClosed {
 
-			panic(err)
+			logger.Abortln(err.Error())
 		}
 	}()
 

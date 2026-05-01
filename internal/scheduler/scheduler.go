@@ -47,8 +47,9 @@ type Scheduler struct {
 	nodeIdle     <-chan registry.NodeID
 	nodeDead     <-chan registry.NodeID
 	activeJobs   chan job.JobID
-	errorChan    chan error
 	jobRequests  chan jobRequest
+	checkHealth  chan chan struct{}
+	errorChan    chan error
 
 	queue           JobQueuer
 	registry        Registry
@@ -60,15 +61,16 @@ type Scheduler struct {
 	activeNodes     map[registry.NodeID]struct{}
 }
 
-func NewScheduler(q JobQueuer, r Registry, l Logger, jobSumitted <-chan job.JobRequest, jobFailed <-chan job.JobID, nodeIdle <-chan registry.NodeID) *Scheduler {
+func NewScheduler(q JobQueuer, r Registry, l Logger, jobSumitted <-chan job.JobRequest, jobFailed <-chan job.JobID, nodeIdle <-chan registry.NodeID, checkHealth chan chan struct{}) *Scheduler {
 	return &Scheduler{
 		jobSubmitted: jobSumitted,
 		jobFailed:    jobFailed,
 		nodeIdle:     nodeIdle,
 		nodeDead:     r.GetDeadNodesChan(),
 		activeJobs:   make(chan job.JobID, 100),
-		errorChan:    make(chan error, 100),
 		jobRequests:  make(chan jobRequest),
+		checkHealth:  checkHealth,
+		errorChan:    make(chan error, 100),
 
 		queue:           q,
 		registry:        r,
@@ -156,7 +158,10 @@ func (s *Scheduler) Start(ctx context.Context) {
 			s.logger.Infoln(fmt.Sprintf("job (ID: %s) assigned to node (ID: %s), job attempt %d", string(jobID), string(req.nodeID), s.attemptsPerTask[jobID]))
 
 			req.resp <- jobID
+		case reply := <-s.checkHealth:
+			reply <- struct{}{}
 		}
+
 	}
 }
 

@@ -46,6 +46,7 @@ type Registry struct {
 	nodeIdle       chan NodeID
 	nodeDead       chan NodeID
 	errorChan      chan error
+	checkHealth    chan chan struct{}
 
 	logger Logger
 
@@ -55,12 +56,13 @@ type Registry struct {
 	workerNodes map[NodeID]*Node
 }
 
-func NewRegistry(l Logger, nodeHeartBeat <-chan NodeID, nodeRegistered <-chan NodeID) *Registry {
+func NewRegistry(l Logger, nodeHeartBeat <-chan NodeID, nodeRegistered <-chan NodeID, chcekHealth chan chan struct{}) *Registry {
 	return &Registry{
 		nodeRegistered:   nodeRegistered,
 		nodeHeartBeat:    nodeHeartBeat,
 		nodeIdle:         make(chan NodeID, 100),
 		nodeDead:         make(chan NodeID, 100),
+		checkHealth:      chcekHealth,
 		errorChan:        make(chan error, 100),
 		logger:           l,
 		pubKeyMutex:      sync.RWMutex{},
@@ -106,7 +108,7 @@ func parseRSAPublicKeyFromFile(path string) (*rsa.PublicKey, error) {
 }
 
 func (r *Registry) InitRegistry(wc []WorkerConfig) {
-	r.logger.Infoln("setting up registry")
+	r.logger.Infoln("loading worker configs")
 
 	r.pubKeyMutex.Lock()
 	defer r.pubKeyMutex.Unlock()
@@ -163,6 +165,8 @@ func (r *Registry) Start(ctx context.Context) {
 				node.LastHeartBeat = time.Now()
 				node.Status = NodeHealthy
 			}
+		case reply := <-r.checkHealth:
+			reply <- struct{}{}
 		case <-ticker.C:
 			for nodeID, node := range r.workerNodes {
 				if time.Since(node.LastHeartBeat) > 6*time.Second {
