@@ -1,11 +1,8 @@
 #include "client.hpp"
 #include <curl/easy.h>
+#include <fmt/format.h>
 #include <fstream>
 #include <logger/logger.hpp>
-
-// kinda stupic i know, but also isn't it stupid how c++ has no
-// built in panic?
-#define PANIC() exit(-1)
 
 namespace Api {
     Client::Client(std::shared_ptr<std::atomic<bool>>& cancelCtx, std::string_view address, const std::string& workerID, std::string secretFPath)
@@ -15,8 +12,9 @@ namespace Api {
 
         std::ifstream file(secretFPath);
         if (!file.is_open()) {
+            // to do: make Logger::Fatalln()
             Logger::Errln("private key file could not be opened, filepath: " + secretFPath);
-            PANIC();
+            exit(-1);
         }
 
         std::string line;
@@ -40,9 +38,8 @@ namespace Api {
         auto res = this->Request("/workers/register", "POST", registerRequest{.id = m_workerID});
 
         if (!res) {
-            Logger::Errln(std::format("registration failed, server gave error: {}", res.body).c_str());
+            Logger::Errln(fmt::format("registration failed, server gave error: {}", res.body).c_str());
             m_cancelCtx->store(true);
         }
-        Logger::Infoln("exit");
     }
 } // namespace Api

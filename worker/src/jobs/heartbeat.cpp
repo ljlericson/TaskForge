@@ -1,6 +1,7 @@
 #include "heartbeat.hpp"
 #include "../logger/logger.hpp"
 #include <chrono>
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -10,13 +11,9 @@ namespace Jobs {
         NLOHMANN_DEFINE_TYPE_INTRUSIVE(heartbeat, id)
     };
 
-    void Heartbeat::Start() {
-        Logger::Infoln("heartbeat thread starting");
-        m_heartbeatThread = std::jthread(&Heartbeat::heartbeatLoop, this);
-    }
+    void Heartbeat::Start() { m_heartbeatThread = std::jthread(&Heartbeat::heartbeatLoop, this); }
 
     void Heartbeat::heartbeatLoop() {
-        Logger::Infoln(std::format("cancelCtx = {}", m_cancelCtx->load()));
         using namespace std::chrono_literals;
         while (!m_cancelCtx->load()) {
             Api::Response res = mr_client.Request("/workers/heartbeat", "POST", heartbeat{.id = m_workerID});

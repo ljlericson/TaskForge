@@ -1,5 +1,5 @@
 {
-  "serverAddress": "127.0.0.1:3000",
+  "serverAddress": "http://127.0.0.1:5000",
   "id": "worker1",
-  "privateKeyPath": "../keys/worker1_key.pem"
+  "privateKeyPath": "../keys/worker1.pem"
 }

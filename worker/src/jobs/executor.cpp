@@ -4,10 +4,12 @@
 #include <chrono>
 #include <csignal>
 #include <filesystem>
+#include <fmt/format.h>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <string>
+#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -28,12 +30,17 @@ struct jobStatus {
     NLOHMANN_DEFINE_TYPE_INTRUSIVE(jobStatus, jobName, progress, phase, status)
 };
 
+struct jobFail {
+    std::string jobID;
+
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(jobFail, jobID)
+};
+
 namespace Jobs {
     static void sendStatus(Api::Client& client, const jobStatus& status) {
         Api::Response res = client.Request("/jobs/status", "POST", status);
-
         if (!res) {
-            Logger::Errln(std::format("status update failed (code {}): {}", res.statusCode, res.body));
+            Logger::Errln(fmt::format("status update failed (code {}): {}", res.statusCode, res.body));
         }
     }
 
@@ -78,15 +85,16 @@ namespace Jobs {
                     Api::Response response = mr_client.Request("/jobs/next", "GET", null{});
 
                     if (response && response.statusCode != 204) {
-                        json j = json::parse(response.body);
 
                         try {
+                            Logger::Infoln("job recieved, starting execution");
+                            json j = json::parse(response.body);
                             m_jobSpec = j.get<JobSpec>();
                             m_progress.store(0);
                             m_jobStartTime = std::chrono::steady_clock::now();
                             m_state.store(State::JobActive);
                         } catch (const json::exception& e) {
-                            Logger::Errln(std::format("parse error: {}", e.what()));
+                            Logger::Errln(fmt::format("parse error: {}", e.what()));
                         }
                     }
                     break;
@@ -105,12 +113,13 @@ namespace Jobs {
 
                 case State::JobFail: {
                     sendStatus(mr_client, {.jobName = m_jobSpec.jobName, .progress = m_progress.load(), .phase = m_phase.load(), .status = "FAIL"});
+                    mr_client.Request("/jobs/fail", "POST", jobFail{.jobID = m_jobSpec.jobName});
                     m_state.store(State::NoJobActive);
                     break;
                 }
             }
 
-            std::this_thread::sleep_for(1s);
+            std::this_thread::sleep_for(3s);
         }
 
         m_execThreadLatch.wait();
@@ -138,7 +147,7 @@ namespace Jobs {
                         m_state.store(State::JobFail);
 
                 } catch (const std::exception& e) {
-                    Logger::Errln(std::format("execution error: {}", e.what()));
+                    Logger::Errln(fmt::format("execution error: {}", e.what()));
                     m_state.store(State::JobFail);
                 }
             }
@@ -150,7 +159,7 @@ namespace Jobs {
     }
 
     void Executor::downloadFile(const std::string& url, const std::string& outputPath) {
-        Logger::Infoln(std::format("downloading from signed url -> {}", outputPath));
+        Logger::Infoln(fmt::format("downloading from signed url -> {}", outputPath));
 
         pid_t pid;
         execProcess({"curl", "-L", "--fail", "-o", outputPath, url}, pid);
@@ -163,7 +172,7 @@ namespace Jobs {
     }
 
     void Executor::uploadFile(const std::string& filePath, const std::string& signedUploadURL) {
-        Logger::Infoln(std::format("uploading result -> {}", filePath));
+        Logger::Infoln(fmt::format("uploading result -> {}", filePath));
 
         pid_t pid;
         execProcess({"curl", "-L", "--fail", "-X", "PUT", "--upload-file", filePath, signedUploadURL}, pid);

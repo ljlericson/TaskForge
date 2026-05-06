@@ -148,11 +148,10 @@ func workerIDFromContext(ctx context.Context) string {
 func (h *Handler) NextJobHandler(w http.ResponseWriter, r *http.Request) {
 	workerID := workerIDFromContext(r.Context())
 
-	h.nodeIdle <- registry.NodeID(workerID)
-
 	jobID, err := h.scheduler.RequestJob(registry.NodeID(workerID))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNoContent)
+		h.nodeIdle <- registry.NodeID(workerID)
 		return
 	}
 

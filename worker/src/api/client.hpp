@@ -3,6 +3,7 @@
 #include "logger/logger.hpp"
 #include <atomic>
 #include <curl/curl.h>
+#include <fmt/format.h>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -98,7 +99,7 @@ namespace Api {
             resp.body = std::move(responseBody);
 
             if (resp.curlCode != CURLE_OK || resp.statusCode >= 400) {
-                Logger::Errln(std::format("request failed {} (http {}): {}", curl_easy_strerror(resp.curlCode), resp.statusCode, route));
+                Logger::Errln(fmt::format("request failed {} (http {}): {}", curl_easy_strerror(resp.curlCode), resp.statusCode, route));
 
                 resp.body.clear();
             }
@@ -116,6 +117,6 @@ namespace Api {
         CURL* m_curl;
         std::mutex m_requestMutex;
         std::jthread m_httpThread;
-        std::string_view m_address;
+        std::string m_address;
     };
 } // namespace Api

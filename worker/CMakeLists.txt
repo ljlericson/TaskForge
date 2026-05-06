@@ -13,6 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(fmt CONFIG REQUIRED)
 
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
@@ -36,6 +37,7 @@ target_link_libraries(TaskforgeWorker PRIVATE
   CURL::libcurl
   OpenSSL::SSL
   OpenSSL::Crypto
+  fmt::fmt
 )
 
 target_compile_options(TaskforgeWorker PRIVATE

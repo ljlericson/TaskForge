@@ -3,6 +3,7 @@
   "dependencies": [
     "nlohmann-json",
     "curl",
-    "openssl"
+    "openssl",
+    "fmt"
   ]
 }
