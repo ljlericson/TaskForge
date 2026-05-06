@@ -3,10 +3,6 @@
 </p>
 
 <p align="center">
-  <b>Distributed Worker System for Scalable Job Execution</b>
-</p>
-
-<p align="center">
   <img src="https://github.com/ljlericson/TaskForge/actions/workflows/go-test.yml/badge.svg" />
   <img src="https://github.com/ljlericson/TaskForge/actions/workflows/worker-build.yml/badge.svg" />
 </p>
