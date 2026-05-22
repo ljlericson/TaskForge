@@ -96,8 +96,14 @@ func inputHandler(ctx input.HandlerContext) {
 	case "stop":
 		ctx.Cancel()
 	case "abort":
-		ctx.Logger.Abortln("user triggered, reason: ", args[1:])
+		if len(args) > 2 {
+			ctx.Logger.Abortln("user triggered, reason: ", args[1:])
+		} else {
+			ctx.Logger.Abortln("user triggered")
+		}
 	case "health":
 		ctx.HealthChecker.CheckHealth()
+	default:
+		ctx.Logger.Errorln("\"", args[0], "\"", " is not a valid command")
 	}
 }

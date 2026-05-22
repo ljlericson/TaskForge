@@ -175,7 +175,7 @@ namespace Jobs {
         Logger::Infoln(fmt::format("uploading result -> {}", filePath));
 
         pid_t pid;
-        execProcess({"curl", "-L", "--fail", "-X", "PUT", "--upload-file", filePath, signedUploadURL}, pid);
+        execProcess({"curl", "-L", "--fail", "-X", "PUT", "--upload-file", filePath, "-H", "Content-Type: application/zip", signedUploadURL}, pid);
 
         int status;
         waitpid(pid, &status, 0);
@@ -208,6 +208,9 @@ namespace Jobs {
 
         m_phase.store(1);
         int result = runProcessStreaming(dockerArgs, job.timeoutSeconds);
+
+        if (result == 1)
+            throw std::runtime_error("process failed");
 
         if (result == -1)
             throw std::runtime_error("timeout");
