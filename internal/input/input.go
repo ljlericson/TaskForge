@@ -46,6 +46,9 @@ func (i *Input) AddHandler(handler Handler) {
 func (i *Input) Start(ctx context.Context) {
 
 	scanner := bufio.NewScanner(os.Stdin)
+	if err := scanner.Err(); err != nil {
+		i.logger.Abortln("could not initialise stdin scanner")
+	}
 	ticker := time.NewTicker(100 * time.Millisecond)
 	for scanner.Scan() {
 		select {

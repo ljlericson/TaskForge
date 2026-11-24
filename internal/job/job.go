@@ -37,6 +37,7 @@ type JarSpec struct {
 type ResourceSpec struct {
 	ExecutionCores  int `json:"executionCores"`
 	ExecutionMemory int `json:"executionMemory"`
+	AttemptsAllowed int `json:"attemptsAllowed"`
 }
 
 type DataSpec struct {

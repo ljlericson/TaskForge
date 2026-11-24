@@ -1,5 +1,4 @@
 #include "executor.hpp"
-
 #include <algorithm>
 #include <chrono>
 #include <csignal>
@@ -37,11 +36,12 @@ struct jobFail {
 };
 
 namespace Jobs {
-    static void sendStatus(Api::Client& client, const jobStatus& status) {
+    static std::optional<std::string> sendStatus(Api::Client& client, const jobStatus& status) {
         Api::Response res = client.Request("/jobs/status", "POST", status);
         if (!res) {
-            Logger::Errln(fmt::format("status update failed (code {}): {}", res.statusCode, res.body));
+            return fmt::format("status update failed (code {}): {}", res.statusCode, res.body);
         }
+        return std::nullopt;
     }
 
     static int execProcess(const std::vector<std::string>& args, pid_t& outPid) {
@@ -76,46 +76,53 @@ namespace Jobs {
 
     void Executor::requestLoop() {
         using namespace std::chrono_literals;
-
         while (!m_cancelCtx->load()) {
-            State state = m_state.load();
+            if (m_serverStatus->load() == Heartbeat::ServerStatus::active) {
+                switch (m_state.load()) {
+                    case State::NoJobActive: {
+                        Api::Response response = m_client->Request("/jobs/next", "GET", null{});
 
-            switch (state) {
-                case State::NoJobActive: {
-                    Api::Response response = mr_client.Request("/jobs/next", "GET", null{});
-
-                    if (response && response.statusCode != 204) {
-
-                        try {
-                            Logger::Infoln("job recieved, starting execution");
-                            json j = json::parse(response.body);
-                            m_jobSpec = j.get<JobSpec>();
-                            m_progress.store(0);
-                            m_jobStartTime = std::chrono::steady_clock::now();
-                            m_state.store(State::JobActive);
-                        } catch (const json::exception& e) {
-                            Logger::Errln(fmt::format("parse error: {}", e.what()));
+                        if (response && response.statusCode != 204) {
+                            try {
+                                m_logger->Infoln("job recieved, starting execution");
+                                json j = json::parse(response.body);
+                                m_jobSpec = j.get<JobSpec>();
+                                m_progress.store(0);
+                                m_jobStartTime = std::chrono::steady_clock::now();
+                                m_state.store(State::JobActive);
+                            } catch (const json::exception& e) {
+                                m_logger->Errln(fmt::format("parse error: {}", e.what()));
+                            }
                         }
+                        break;
                     }
-                    break;
-                }
 
-                case State::JobActive: {
-                    sendStatus(mr_client, {.jobName = m_jobSpec.jobName, .progress = m_progress.load(), .phase = m_phase.load(), .status = "ACTIVE"});
-                    break;
-                }
+                    case State::JobActive: {
+                        auto result = sendStatus(*m_client, {.jobName = m_jobSpec.jobName, .progress = m_progress.load(), .phase = m_phase.load(), .status = "ACTIVE"});
+                        if (result.has_value()) {
+                            m_logger->Errln(result.value());
+                        }
+                        break;
+                    }
 
-                case State::JobSuccess: {
-                    sendStatus(mr_client, {.jobName = m_jobSpec.jobName, .progress = m_progress.load(), .phase = m_phase.load(), .status = "SUCCESS"});
-                    m_state.store(State::NoJobActive);
-                    break;
-                }
+                    case State::JobSuccess: {
+                        auto result = sendStatus(*m_client, {.jobName = m_jobSpec.jobName, .progress = m_progress.load(), .phase = m_phase.load(), .status = "SUCCESS"});
+                        if (result.has_value()) {
+                            m_logger->Errln(result.value());
+                        }
+                        m_state.store(State::NoJobActive);
+                        break;
+                    }
 
-                case State::JobFail: {
-                    sendStatus(mr_client, {.jobName = m_jobSpec.jobName, .progress = m_progress.load(), .phase = m_phase.load(), .status = "FAIL"});
-                    mr_client.Request("/jobs/fail", "POST", jobFail{.jobID = m_jobSpec.jobName});
-                    m_state.store(State::NoJobActive);
-                    break;
+                    case State::JobFail: {
+                        auto result = sendStatus(*m_client, {.jobName = m_jobSpec.jobName, .progress = m_progress.load(), .phase = m_phase.load(), .status = "FAIL"});
+                        if (result.has_value()) {
+                            m_logger->Errln(result.value());
+                        }
+                        m_client->Request("/jobs/fail", "POST", jobFail{.jobID = m_jobSpec.jobName});
+                        m_state.store(State::NoJobActive);
+                        break;
+                    }
                 }
             }
 
@@ -147,7 +154,7 @@ namespace Jobs {
                         m_state.store(State::JobFail);
 
                 } catch (const std::exception& e) {
-                    Logger::Errln(fmt::format("execution error: {}", e.what()));
+                    m_logger->Errln(fmt::format("execution error: {}", e.what()));
                     m_state.store(State::JobFail);
                 }
             }
@@ -159,7 +166,7 @@ namespace Jobs {
     }
 
     void Executor::downloadFile(const std::string& url, const std::string& outputPath) {
-        Logger::Infoln(fmt::format("downloading from signed url -> {}", outputPath));
+        m_logger->Infoln(fmt::format("downloading from signed url -> {}", outputPath));
 
         pid_t pid;
         execProcess({"curl", "-L", "--fail", "-o", outputPath, url}, pid);
@@ -172,7 +179,7 @@ namespace Jobs {
     }
 
     void Executor::uploadFile(const std::string& filePath, const std::string& signedUploadURL) {
-        Logger::Infoln(fmt::format("uploading result -> {}", filePath));
+        m_logger->Infoln(fmt::format("uploading result -> {}", filePath));
 
         pid_t pid;
         execProcess({"curl", "-L", "--fail", "-X", "PUT", "--upload-file", filePath, "-H", "Content-Type: application/zip", signedUploadURL}, pid);
@@ -266,7 +273,7 @@ namespace Jobs {
                 std::string line(buffer);
 
                 parseProgress(line);
-                Logger::Infoln(std::format("jar pritned \"{}\"", line));
+                m_logger->Infoln(std::format("jar pritned \"{}\"", line));
             }
 
             pid_t result = waitpid(pid, &status, WNOHANG);

@@ -1,8 +1,9 @@
 #pragma once
 #include "../auth/signer.hpp"
-#include "logger/logger.hpp"
+#include "../logging/logger.hpp"
 #include <atomic>
 #include <curl/curl.h>
+#include <expected>
 #include <fmt/format.h>
 #include <iostream>
 #include <memory>
@@ -23,7 +24,9 @@ namespace Api {
 
     class Client {
     public:
-        Client(std::shared_ptr<std::atomic<bool>>& cancelCtx, std::string_view address, const std::string& workerID, std::string secretFPath);
+        static auto Create(std::shared_ptr<std::atomic<bool>>& cancelCtx, const std::shared_ptr<Logging::Logger>& logger, std::string_view address, const std::string& workerID,
+                           std::string secretFPath) -> std::expected<std::shared_ptr<Client>, std::string>;
+
         ~Client();
 
         template <typename T> Response Request(const std::string& route, const std::string& method, const T& jsonData) {
@@ -98,20 +101,25 @@ namespace Api {
 
             resp.body = std::move(responseBody);
 
-            if (resp.curlCode != CURLE_OK || resp.statusCode >= 400) {
-                Logger::Errln(fmt::format("request failed {} (http {}): {}", curl_easy_strerror(resp.curlCode), resp.statusCode, route));
+            // note: code is redundent
+            // if (resp.curlCode != CURLE_OK || resp.statusCode >= 400) {
+            //     m_logger->Errln(fmt::format("request failed {} (http {}): {}", curl_easy_strerror(resp.curlCode), resp.statusCode, route));
 
-                resp.body.clear();
-            }
+            //     resp.body.clear();
+            // }
             return resp;
         }
 
-        void RegisterWorker();
+        Response RegisterWorker();
+
+    private:
+        Client(std::ifstream& file, std::shared_ptr<std::atomic<bool>>& cancelCtx, const std::shared_ptr<Logging::Logger>& logger, std::string_view address, const std::string& workerID);
 
     private:
         void apiCall();
 
         std::shared_ptr<std::atomic<bool>> m_cancelCtx;
+        std::shared_ptr<Logging::Logger> m_logger;
         std::string m_workerID;
         std::string m_secret;
         CURL* m_curl;

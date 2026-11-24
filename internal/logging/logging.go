@@ -1,13 +1,17 @@
 package logging
 
 import (
+	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type MesCol string
@@ -55,17 +59,48 @@ type Logger struct {
 	cancel        context.CancelFunc
 }
 
-func NewLogger(path string, cancel context.CancelFunc) (*Logger, error) {
-
-	logDir := filepath.Dir(path)
-	err := os.MkdirAll(logDir, os.ModePerm)
+func archiveLog(path string) error {
+	src, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
-		panic(err)
+		return err
+	}
+	defer src.Close()
+
+	base := strings.TrimSuffix(path, filepath.Ext(path))
+	archive := fmt.Sprintf("%s_%s.log.gz", base, time.Now().Format("2006-01-02_15-04-05"))
+	dst, err := os.Create(archive)
+	if err != nil {
+		return err
 	}
 
-	file, err2 := os.Create(path)
-	if err2 != nil {
-		panic(err2)
+	zw := gzip.NewWriter(dst)
+	if _, err := io.Copy(zw, src); err != nil {
+		zw.Close()
+		dst.Close()
+		return err
+	}
+	if err := zw.Close(); err != nil {
+		dst.Close()
+		return err
+	}
+	return dst.Close()
+}
+
+func NewLogger(path string, cancel context.CancelFunc) (*Logger, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create log dir: %w", err)
+	}
+
+	if err := archiveLog(path); err != nil {
+		return nil, fmt.Errorf("archive old log: %w", err)
+	}
+
+	file, err := os.Create(path)
+	if err != nil {
+		return nil, fmt.Errorf("log file could not be opened: %w", err)
 	}
 
 	return &Logger{

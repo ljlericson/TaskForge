@@ -138,24 +138,21 @@ func (r *Registry) Start(ctx context.Context) {
 
 			if node, ok := r.workerNodes[nodeID]; ok {
 				if node.Status == NodePending {
-					r.logger.Successln("pending node has restarted")
+					r.logger.Successln("pending node has reestablished connection")
 
 					node.MissedHeartBeats = 0
 					node.LastHeartBeat = time.Now()
 					node.Status = NodeHealthy
-					r.logger.Infoln("worker (ID: " + node.ID + ") has registered successfully")
-
-					break
 				} else {
 					r.errorChan <- errors.New("worker already registered")
-					break
 				}
+			} else {
+				var node Node
+				node.ID = nodeID
+				node.LastHeartBeat = time.Now()
+				r.workerNodes[nodeID] = &node
+				r.logger.Infoln("worker (ID: " + node.ID + ") has registered successfully")
 			}
-			var node Node
-			node.ID = nodeID
-			node.LastHeartBeat = time.Now()
-			r.workerNodes[nodeID] = &node
-			r.logger.Infoln("worker (ID: " + node.ID + ") has registered successfully")
 		case nodeID := <-r.nodeHeartBeat:
 			node, ok := r.workerNodes[nodeID]
 			if !ok {

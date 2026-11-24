@@ -1,4 +1,7 @@
+console.log("api.js loaded")
 export async function postRequest(serverIP, data) {
+    console.log("Sending:", JSON.stringify(data, null, 2))
+
     const res = await fetch(`http://${serverIP}`, {
         method: "POST",
         headers: {

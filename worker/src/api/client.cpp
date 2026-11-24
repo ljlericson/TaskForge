@@ -2,20 +2,22 @@
 #include <curl/easy.h>
 #include <fmt/format.h>
 #include <fstream>
-#include <logger/logger.hpp>
 
 namespace Api {
-    Client::Client(std::shared_ptr<std::atomic<bool>>& cancelCtx, std::string_view address, const std::string& workerID, std::string secretFPath)
-        : m_cancelCtx(cancelCtx), m_workerID(workerID), m_address(address) {
-        curl_global_init(CURL_GLOBAL_ALL);
-        m_curl = curl_easy_init();
-
+    auto Client::Create(std::shared_ptr<std::atomic<bool>>& cancelCtx, const std::shared_ptr<Logging::Logger>& logger, std::string_view address, const std::string& workerID, std::string secretFPath)
+        -> std::expected<std::shared_ptr<Client>, std::string> {
         std::ifstream file(secretFPath);
         if (!file.is_open()) {
-            // to do: make Logger::Fatalln()
-            Logger::Errln("private key file could not be opened, filepath: " + secretFPath);
-            exit(-1);
+            return std::unexpected("private key file could not be opened, filepath: " + secretFPath);
         }
+
+        return std::shared_ptr<Client>(new Client(file, cancelCtx, logger, address, workerID));
+    }
+
+    Client::Client(std::ifstream& file, std::shared_ptr<std::atomic<bool>>& cancelCtx, const std::shared_ptr<Logging::Logger>& logger, std::string_view address, const std::string& workerID)
+        : m_cancelCtx(cancelCtx), m_logger(logger), m_workerID(workerID), m_address(address) {
+        curl_global_init(CURL_GLOBAL_ALL);
+        m_curl = curl_easy_init();
 
         std::string line;
         while (std::getline(file, line)) {
@@ -34,12 +36,5 @@ namespace Api {
         NLOHMANN_DEFINE_TYPE_INTRUSIVE(registerRequest, id)
     };
 
-    void Client::RegisterWorker() {
-        auto res = this->Request("/workers/register", "POST", registerRequest{.id = m_workerID});
-
-        if (!res) {
-            Logger::Errln(fmt::format("registration failed, server gave error: {}", res.body).c_str());
-            m_cancelCtx->store(true);
-        }
-    }
+    Response Client::RegisterWorker() { return this->Request("/workers/register", "POST", registerRequest{.id = m_workerID}); }
 } // namespace Api

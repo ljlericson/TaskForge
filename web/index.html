@@ -38,10 +38,10 @@
         <input id="jobName" />
         <br>
         <label for="timeoutSeconds">Timeout (seconds)</label>
-        <input id="timeoutSeconds" />
+        <input type="number" id="timeoutSeconds" />
         <br>
         <label for="priority">Priority</label>
-        <input id="priority" />
+        <input type="number" id="priority" />
       </fieldset>
 
       <fieldset>
@@ -59,10 +59,19 @@
       <fieldset>
         <legend>Resources</legend>
         <label for="executionCores">Number of Execution Cores</label>
-        <input id="executionCores" />
+        <input type="number" id="executionCores" />
         <br>
         <label for="executionMemory">Memory for Execution (Mb)</label>
-        <input id="executionMemory" />
+        <input type="number" id="executionMemory" />
+        <br>
+        <label for="attemptsAllowed">Max attempts allowed</label>
+        <input
+            type="number"
+            id="attemptsAllowed"
+            name="attemptsAllowed"
+            value="3"
+            min="1"
+        >
       </fieldset>
 
       <fieldset>

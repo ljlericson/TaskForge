@@ -1,5 +1,4 @@
 #include "heartbeat.hpp"
-#include "../logger/logger.hpp"
 #include <chrono>
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
@@ -14,13 +13,35 @@ namespace Jobs {
     void Heartbeat::Start() { m_heartbeatThread = std::jthread(&Heartbeat::heartbeatLoop, this); }
 
     void Heartbeat::heartbeatLoop() {
+        uint8_t numOfFails = 0;
         using namespace std::chrono_literals;
         while (!m_cancelCtx->load()) {
-            Api::Response res = mr_client.Request("/workers/heartbeat", "POST", heartbeat{.id = m_workerID});
-            if (!res) {
-                Logger::Errln(res.body);
+            switch (m_serverStatus->load()) {
+                case ServerStatus::active: {
+                    Api::Response res = m_client->Request("/workers/heartbeat", "POST", heartbeat{.id = m_workerID});
+                    if (!res) {
+                        ++numOfFails;
+                        m_logger->Errln(fmt::format("heartbeat failed (err: {}), number of missed heartbeats: {}", res.body, numOfFails));
+                    }
+
+                    if (numOfFails > 5) {
+                        m_logger->Infoln("server is unresponsive, entering hibernation mode");
+                        m_serverStatus->store(ServerStatus::hibernation);
+                        numOfFails = 0;
+                    }
+                    std::this_thread::sleep_for(4500ms);
+                    break;
+                }
+                case ServerStatus::hibernation: {
+                    Api::Response res = m_client->RegisterWorker();
+                    if (res) {
+                        m_serverStatus->store(ServerStatus::active);
+                        m_logger->Infoln("connection to server established");
+                    } else {
+                        std::this_thread::sleep_for(60s);
+                    }
+                }
             }
-            std::this_thread::sleep_for(4500ms);
         }
         mr_latch.count_down();
     }

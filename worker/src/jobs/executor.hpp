@@ -1,5 +1,7 @@
 #pragma once
 #include "../api/client.hpp"
+#include "../logging/logger.hpp"
+#include "heartbeat.hpp"
 #include "state.hpp"
 #include <atomic>
 #include <chrono>
@@ -49,7 +51,9 @@ namespace Jobs {
 
     class Executor {
     public:
-        Executor(std::shared_ptr<std::atomic<bool>>& cancelCtx, Api::Client& client, std::latch& latch) : m_cancelCtx(cancelCtx), mr_client(client), mr_latch(latch), m_execThreadLatch{1} {};
+        Executor(const std::shared_ptr<std::atomic<bool>>& cancelCtx, const std::shared_ptr<std::atomic<Heartbeat::ServerStatus>>& serverStatus, const std::shared_ptr<Logging::Logger>& logger,
+                 std::shared_ptr<Api::Client>& client, std::latch& latch)
+            : m_cancelCtx(cancelCtx), m_serverStatus(serverStatus), m_logger(logger), m_client(client), mr_latch(latch), m_execThreadLatch{1} {};
 
         void Start();
 
@@ -69,6 +73,7 @@ namespace Jobs {
         void parseProgress(const std::string& line);
 
         JobSpec m_jobSpec;
+        std::shared_ptr<std::atomic<Heartbeat::ServerStatus>> m_serverStatus;
         std::shared_ptr<std::atomic<bool>> m_cancelCtx;
         std::string m_workspaceBase = "/tmp/taskforge";
         std::chrono::steady_clock::time_point m_jobStartTime;
@@ -79,9 +84,10 @@ namespace Jobs {
         std::atomic<int> m_progress{0};
         std::atomic<int> m_phase{0};
         std::mutex m_jobMutex;
+        std::shared_ptr<Logging::Logger> m_logger;
         std::jthread m_execThread;
         std::jthread m_requestThread;
-        Api::Client& mr_client;
+        std::shared_ptr<Api::Client> m_client;
         std::latch& mr_latch;
         std::latch m_execThreadLatch;
     };

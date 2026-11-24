@@ -36,9 +36,8 @@ type Logger interface {
 }
 
 type task struct {
-	JobID   job.JobID
-	Attempt int
-	NodeID  registry.NodeID
+	JobID  job.JobID
+	NodeID registry.NodeID
 }
 
 type Scheduler struct {
@@ -51,14 +50,15 @@ type Scheduler struct {
 	checkHealth  chan chan struct{}
 	errorChan    chan error
 
-	queue           JobQueuer
-	registry        Registry
-	logger          Logger
-	activeTasks     map[job.JobID]*task // Tasks use same ID as jobs to avoid complication
-	nodeIDToTask    map[registry.NodeID]job.JobID
-	attemptsPerTask map[job.JobID]int
-	idleNodes       []registry.NodeID
-	activeNodes     map[registry.NodeID]struct{}
+	queue              JobQueuer
+	registry           Registry
+	logger             Logger
+	activeTasks        map[job.JobID]*task // Tasks use same ID as jobs to avoid complication
+	nodeIDToTask       map[registry.NodeID]job.JobID
+	attemptsPerTask    map[job.JobID]int
+	maxAttemptsPerTask map[job.JobID]int
+	idleNodes          []registry.NodeID
+	activeNodes        map[registry.NodeID]struct{}
 }
 
 func NewScheduler(q JobQueuer, r Registry, l Logger, jobSumitted <-chan job.JobRequest, jobFailed <-chan job.JobID, nodeIdle <-chan registry.NodeID, checkHealth chan chan struct{}) *Scheduler {
@@ -72,14 +72,15 @@ func NewScheduler(q JobQueuer, r Registry, l Logger, jobSumitted <-chan job.JobR
 		checkHealth:  checkHealth,
 		errorChan:    make(chan error, 100),
 
-		queue:           q,
-		registry:        r,
-		logger:          l,
-		activeTasks:     make(map[job.JobID]*task),
-		nodeIDToTask:    make(map[registry.NodeID]job.JobID),
-		idleNodes:       make([]registry.NodeID, 0),
-		activeNodes:     make(map[registry.NodeID]struct{}),
-		attemptsPerTask: map[job.JobID]int{},
+		queue:              q,
+		registry:           r,
+		logger:             l,
+		activeTasks:        make(map[job.JobID]*task),
+		nodeIDToTask:       make(map[registry.NodeID]job.JobID),
+		idleNodes:          make([]registry.NodeID, 0),
+		activeNodes:        make(map[registry.NodeID]struct{}),
+		attemptsPerTask:    make(map[job.JobID]int),
+		maxAttemptsPerTask: make(map[job.JobID]int),
 	}
 }
 
@@ -114,6 +115,14 @@ func (s *Scheduler) Start(ctx context.Context) {
 
 		case jr := <-s.jobSubmitted:
 			s.logger.Infoln("scheduler recieved signal on job submitted channel")
+			maxAttempts := jr.Resources.AttemptsAllowed
+			if maxAttempts == 0 {
+				maxAttempts = 3
+			} else if maxAttempts > 10 {
+				s.logger.Warnln("potentially malicious job submitted with max attempts value >10, rejecting job")
+				continue
+			}
+			s.maxAttemptsPerTask[job.JobID(jr.JobName)] = maxAttempts
 			s.errorChan <- s.queue.AddJobToQueue(&jr)
 		case jobID := <-s.jobFailed:
 			s.logger.Infoln("scheduler recieved signal on job failed channel")
@@ -147,9 +156,8 @@ func (s *Scheduler) Start(ctx context.Context) {
 
 			s.attemptsPerTask[jobID]++
 			s.activeTasks[jobID] = &task{
-				JobID:   jobID,
-				NodeID:  req.nodeID,
-				Attempt: s.attemptsPerTask[jobID],
+				JobID:  jobID,
+				NodeID: req.nodeID,
 			}
 
 			s.nodeIDToTask[req.nodeID] = jobID
@@ -191,19 +199,18 @@ func (s *Scheduler) assignJobs() {
 
 		_, ok := s.attemptsPerTask[jobID]
 		if !ok {
-			s.attemptsPerTask[jobID] = 0
+			s.attemptsPerTask[jobID] = 1
+		} else {
+			s.attemptsPerTask[jobID]++
 		}
-		s.attemptsPerTask[jobID]++
-
 		nodeID := s.idleNodes[0]
 		s.idleNodes = s.idleNodes[1:]
 
 		s.activeJobs <- jobID
 
 		s.activeTasks[jobID] = &task{
-			JobID:   jobID,
-			NodeID:  nodeID,
-			Attempt: s.attemptsPerTask[jobID],
+			JobID:  jobID,
+			NodeID: nodeID,
 		}
 		s.nodeIDToTask[nodeID] = jobID
 		s.activeNodes[nodeID] = struct{}{}
@@ -235,8 +242,14 @@ func (s *Scheduler) failJob(jobID job.JobID) error {
 		return errors.New("job not found")
 	}
 
-	s.logger.Warnln(fmt.Sprintf("job (ID: %s) FAILED, job returning to queue", string(jobID)))
-	s.queue.ReturnJobToQueue(jobID)
+	if attempt, max := s.attemptsPerTask[task.JobID], s.maxAttemptsPerTask[task.JobID]; attempt < max {
+		s.logger.Infoln("job (ID:", string(jobID), ") FAILED, job returning to queue (ATTEMPT ", attempt, " OF ", max, ")")
+		s.queue.ReturnJobToQueue(jobID)
+	} else {
+		s.logger.Infoln("job (ID:", string(jobID), ") FAILED, job exceded max try limit, removing from queue")
+		delete(s.attemptsPerTask, jobID)
+		delete(s.maxAttemptsPerTask, jobID)
+	}
 
 	if _, ok := s.activeNodes[task.NodeID]; !ok {
 		s.logger.Errorln("no node found for task")

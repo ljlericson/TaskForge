@@ -6,7 +6,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const form = document.getElementById("newJob")
 
     form.addEventListener("submit", async (e) => {
-        console.log("asdas")
         e.preventDefault()
 
         const jobName = document.getElementById("jobName").value
@@ -19,6 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const executionCores = Number(document.getElementById("executionCores").value)
         const executionMemory = Number(document.getElementById("executionMemory").value)
+        const attemptsAllowed = Number(document.getElementById("attemptsAllowed").value)
 
         const dataInput = document.getElementById("dataInput").value
         const dataOutput = document.getElementById("dataOutput").value
@@ -42,7 +42,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
             resources: {
                 executionCores: executionCores,
-                executionMemory: executionMemory
+                executionMemory: executionMemory,
+                attemptsAllowed: attemptsAllowed
             },
 
             data: {

@@ -7,7 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-const LogoStr string = `
+const logoStr string = `
  _____ ___   _____ _   __   ______ ___________ _____  _____ 
 |_   _/ _ \ /  ___| | / /   |  ___|  _  | ___ \  __ \|  ___|
   | |/ /_\ \\ '--.| |/ /    | |_  | | | | |_/ / |  \/| |__  
@@ -19,7 +19,7 @@ const LogoStr string = `
 
 func ConfigureRoutes(h *Handler, r *chi.Mux) {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(LogoStr))
+		w.Write([]byte(logoStr))
 	})
 
 	// public routes

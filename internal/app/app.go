@@ -15,6 +15,16 @@ import (
 	"github.com/ljlericson/TaskForge/internal/logging"
 )
 
+const LogoStr string = `
+ _____ ___   _____ _   __   ______ ___________ _____  _____ 
+|_   _/ _ \ /  ___| | / /   |  ___|  _  | ___ \  __ \|  ___|
+  | |/ /_\ \\ '--.| |/ /    | |_  | | | | |_/ / |  \/| |__  
+  | ||  _  | '--. \    \    |  _| | | | |    /| | __ |  __| 
+  | || | | |/\__/ / |\  \   | |   \ \_/ / |\ \| |_\ \| |___ 
+  \_/\_| |_/\____/\_| \_/   \_|    \___/\_| \_|\____/\____/ 
+
+	`
+
 type App struct {
 	cfg    *Config
 	ctx    context.Context
@@ -25,7 +35,7 @@ type App struct {
 
 func NewApp(path string) (*App, error) {
 	fmt.Print(logging.Yellow)
-	fmt.Print(api.LogoStr)
+	fmt.Print(LogoStr)
 	fmt.Println(logging.ResetCol)
 
 	cfg, err := LoadConfig(path)

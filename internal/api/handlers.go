@@ -235,6 +235,7 @@ func (h *Handler) RegisterWorkerHandler(w http.ResponseWriter, r *http.Request) 
 	select {
 	case err := <-h.registryErrChan:
 		if err != nil {
+			h.logger.Infoln("worker rejected from registering, reason: ", err.Error())
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
